@@ -7,7 +7,11 @@ import * as FileSystem from 'expo-file-system';
 import * as DocumentPicker from 'expo-document-picker';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import usePitchDetection from '../../hooks/usePitchDetection';
+import useToneMapComparison from '../../hooks/useToneMapComparison';
+import ToneMapVisualizer from '../../components/ToneMapVisualizer';
+import PitchComparisonPlayer from '../../components/PitchComparisonPlayer';
 import { testMicrophoneAccess } from '../../utils/webAudioDetection';
+import { letItGoToneMap, letItGoInfo } from '../../data/letItGoToneMap';
 
 // --- constants ---
 const SAMPLE_RATE = 44100;
@@ -76,6 +80,23 @@ export default function Index() {
 
   // TEST MODE
   const [testMode, setTestMode] = useState(false);
+  
+  // TONE MAP MODE
+  const [toneMapMode, setToneMapMode] = useState(false);
+  const [showPitchComparison, setShowPitchComparison] = useState(false);
+  const {
+    currentTime: toneMapTime,
+    expectedPitch,
+    comparison,
+    performanceHistory,
+    sessionScore,
+    isRecording: isToneMapRecording,
+    startSession,
+    stopSession,
+    compareUserPitch,
+    progress,
+    realTimeFeedback
+  } = useToneMapComparison(letItGoToneMap, toneMapMode);
 
   // refs
   const timerRef = useRef(null);
@@ -119,6 +140,26 @@ export default function Index() {
       setDebugInfo(`Error: ${e.message}`);
       Alert.alert('Error', 'Failed to start pitch detection.');
     }
+  };
+
+  // Effect to compare user pitch with tone map when both are active
+  useEffect(() => {
+    if (toneMapMode && (isVoiced || testMode) && currentPitch > 0) {
+      compareUserPitch(currentPitch);
+    }
+  }, [toneMapMode, isVoiced, testMode, currentPitch, compareUserPitch]);
+
+  const startToneMapMode = () => {
+    setToneMapMode(true);
+    startSession();
+    if (!isDetecting && !testMode) {
+      startDetection();
+    }
+  };
+
+  const stopToneMapMode = () => {
+    setToneMapMode(false);
+    stopSession();
   };
 
   const stopDetection = async () => {
@@ -378,7 +419,91 @@ export default function Index() {
             <Text style={styles.buttonText}>🔧 Test Microphone</Text>
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: '#9c27b0' }, toneMapMode && styles.buttonActive]}
+          onPress={toneMapMode ? stopToneMapMode : startToneMapMode}
+        >
+          <Text style={styles.buttonText}>
+            {toneMapMode ? '🎵 Stop "Let It Go"' : '🎵 Practice "Let It Go"'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: '#ff6b35' }, showPitchComparison && styles.buttonActive]}
+          onPress={() => setShowPitchComparison(!showPitchComparison)}
+        >
+          <Text style={styles.buttonText}>
+            {showPitchComparison ? '🎤 Hide MP3 Analysis' : '🎤 Analyze MP3 Song'}
+          </Text>
+        </TouchableOpacity>
       </View>
+
+      {/* Tone Map - Let It Go Practice */}
+      {toneMapMode && (
+        <View style={styles.toneMapSection}>
+          <Text style={styles.sectionTitle}>
+            🎵 "Let It Go" Practice Mode
+            {isToneMapRecording && ' 🎤 Recording'}
+          </Text>
+          
+          <ToneMapVisualizer
+            toneMap={letItGoToneMap}
+            currentTime={toneMapTime}
+            userPitch={currentPitch}
+            comparison={comparison}
+            style={styles.toneMapVisualizer}
+          />
+          
+          {realTimeFeedback && (
+            <View style={[styles.feedbackDisplay, { backgroundColor: realTimeFeedback.color + '20' }]}>
+              <Text style={[styles.feedbackText, { color: realTimeFeedback.color }]}>
+                {realTimeFeedback.message}
+              </Text>
+              {realTimeFeedback.accuracy && (
+                <Text style={styles.accuracyText}>
+                  Accuracy: {realTimeFeedback.accuracy}%
+                </Text>
+              )}
+            </View>
+          )}
+
+          {sessionScore && (
+            <View style={styles.sessionScoreDisplay}>
+              <Text style={styles.sessionScoreTitle}>Session Complete! 🎉</Text>
+              <View style={styles.scoreRow}>
+                <Text style={styles.scoreLabel}>Overall Score:</Text>
+                <Text style={styles.scoreValue}>{sessionScore.overallScore}%</Text>
+              </View>
+              <View style={styles.scoreRow}>
+                <Text style={styles.scoreLabel}>Perfect Notes:</Text>
+                <Text style={styles.scoreValue}>{sessionScore.perfectNotes}/{sessionScore.totalNotes}</Text>
+              </View>
+              <View style={styles.scoreRow}>
+                <Text style={styles.scoreLabel}>Pitch Stability:</Text>
+                <Text style={styles.scoreValue}>{sessionScore.pitchStability}%</Text>
+              </View>
+            </View>
+          )}
+
+          <View style={styles.toneMapInfo}>
+            <Text style={styles.toneMapInfoText}>
+              Progress: {Math.round(progress)}% • 
+              Song: {letItGoInfo.key} • 
+              Tempo: {letItGoInfo.tempo} BPM • 
+              Range: {letItGoInfo.vocalRange.lowest}-{letItGoInfo.vocalRange.highest}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* MP3 Pitch Comparison Tool */}
+      {showPitchComparison && (
+        <View style={styles.pitchComparisonSection}>
+          <Text style={styles.sectionTitle}>🎵 MP3 Pitch Analysis & Practice</Text>
+          <PitchComparisonPlayer audioFile="musicstore/BeoDatMayTroi.mp3" />
+        </View>
+      )}
 
       {/* Score */}
       {score && (
@@ -514,4 +639,87 @@ const styles = StyleSheet.create({
   },
   instructionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 10, color: '#333' },
   instructionText: { fontSize: 14, color: '#666', lineHeight: 20 },
+
+  // Tone Map Styles
+  toneMapSection: {
+    backgroundColor: 'white', margin: 15, padding: 20, borderRadius: 10,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3,
+  },
+  toneMapVisualizer: {
+    height: 300,
+    marginVertical: 15,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  feedbackDisplay: {
+    padding: 15,
+    borderRadius: 8,
+    marginVertical: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ddd',
+  },
+  feedbackText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  accuracyText: {
+    fontSize: 14,
+    color: '#666',
+    marginTop: 5,
+  },
+  sessionScoreDisplay: {
+    backgroundColor: '#f8f9fa',
+    padding: 20,
+    borderRadius: 10,
+    marginVertical: 15,
+    borderWidth: 2,
+    borderColor: '#28a745',
+  },
+  sessionScoreTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#28a745',
+    textAlign: 'center',
+    marginBottom: 15,
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  scoreLabel: {
+    fontSize: 16,
+    color: '#333',
+    fontWeight: '500',
+  },
+  scoreValue: {
+    fontSize: 16,
+    color: '#28a745',
+    fontWeight: 'bold',
+  },
+  toneMapInfo: {
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 10,
+  },
+  toneMapInfoText: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+  },
+  pitchComparisonSection: {
+    backgroundColor: 'white', 
+    margin: 15, 
+    padding: 20, 
+    borderRadius: 10,
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.1, 
+    shadowRadius: 4, 
+    elevation: 3,
+    minHeight: 400,
+  },
 });

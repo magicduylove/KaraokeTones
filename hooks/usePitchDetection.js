@@ -7,8 +7,9 @@ import { WebAudioPitchDetector } from '../utils/webAudioDetection';
 const SAMPLE_RATE = 44100;
 const UPDATE_INTERVAL = 100;
 const AMPLITUDE_THRESHOLD = 0.01;
-const SMOOTHING_FACTOR = 0.85; // Slightly less smoothing for more responsiveness
-const DISPLAY_UPDATE_RATE = 200; // Update display every 200ms instead of real-time
+const SMOOTHING_FACTOR = 0.92; // Increased smoothing for more stability during singing
+const DISPLAY_UPDATE_RATE = 150; // Slightly faster updates for better responsiveness
+const STABILITY_THRESHOLD = 0.02; // Threshold for pitch stability (2% change)
 const A4 = 440;
 const NOTES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const BUFFER_SIZE = 4096; // Larger buffer for better frequency resolution
@@ -30,8 +31,10 @@ export default function usePitchDetection() {
     const pendingPitchUpdate = useRef(null);
     const stabilityBuffer = useRef([]);
     const lastStableNote = useRef('--');
+    const pitchHistoryBuffer = useRef([]); // For enhanced stability
+    const lastSignificantPitch = useRef(0);
 
-    // Calculate pitch stability
+    // Enhanced stability calculation with pitch smoothing
     const calculateStability = (note) => {
         if (!note || note === '--') {
             stabilityBuffer.current = [];
@@ -56,6 +59,50 @@ export default function usePitchDetection() {
         }
     };
 
+    // Enhanced pitch smoothing for singing stability
+    const applySingingStability = (newPitch) => {
+        if (!newPitch || newPitch <= 0) return newPitch;
+        
+        // Add to pitch history buffer
+        pitchHistoryBuffer.current.push(newPitch);
+        if (pitchHistoryBuffer.current.length > 8) {
+            pitchHistoryBuffer.current.shift();
+        }
+        
+        // If we don't have enough history, use basic smoothing
+        if (pitchHistoryBuffer.current.length < 3) {
+            return newPitch;
+        }
+        
+        // Calculate median of recent pitches to reduce outliers
+        const sortedHistory = [...pitchHistoryBuffer.current].sort((a, b) => a - b);
+        const median = sortedHistory[Math.floor(sortedHistory.length / 2)];
+        
+        // Calculate average of recent pitches
+        const average = pitchHistoryBuffer.current.reduce((sum, p) => sum + p, 0) / pitchHistoryBuffer.current.length;
+        
+        // Check if the new pitch is significantly different from recent trend
+        const lastPitch = lastSignificantPitch.current || newPitch;
+        const percentChange = Math.abs(newPitch - lastPitch) / lastPitch;
+        
+        let stabilizedPitch;
+        
+        if (percentChange > STABILITY_THRESHOLD) {
+            // Large change - use weighted average of median and new pitch
+            stabilizedPitch = median * 0.7 + newPitch * 0.3;
+        } else {
+            // Small change - use more aggressive smoothing
+            stabilizedPitch = average * 0.8 + newPitch * 0.2;
+        }
+        
+        // Update last significant pitch if the change is accepted
+        if (percentChange > STABILITY_THRESHOLD / 2) {
+            lastSignificantPitch.current = stabilizedPitch;
+        }
+        
+        return stabilizedPitch;
+    };
+
     // Throttled display update function
     const updateDisplay = (pitch, note, centsOff, voiced) => {
         // Calculate stability for the note
@@ -67,9 +114,11 @@ export default function usePitchDetection() {
             displayUpdateTimer.current = setTimeout(() => {
                 if (pendingPitchUpdate.current) {
                     const { pitch, note, centsOff, voiced } = pendingPitchUpdate.current;
-                    setCurrentPitch(pitch);
-                    setCurrentNote(note);
-                    setCents(centsOff);
+                    if (pitch > 0) { // Only update if we have a valid pitch
+                        setCurrentPitch(pitch);
+                        setCurrentNote(note);
+                        setCents(centsOff);
+                    }
                     setIsVoiced(voiced);
                     pendingPitchUpdate.current = null;
                 }
@@ -112,9 +161,12 @@ export default function usePitchDetection() {
             const detectedPitch = enhancedPitchDetection(windowed, SAMPLE_RATE);
             
             if (detectedPitch > 0 && detectedPitch >= 80 && detectedPitch <= 2000) {
-                // Apply smoothing
-                const prev = smoothBuf.current.at(-1) ?? detectedPitch;
-                const smoothed = prev * SMOOTHING_FACTOR + detectedPitch * (1 - SMOOTHING_FACTOR);
+                // Apply enhanced stability smoothing for singing
+                const stabilizedPitch = applySingingStability(detectedPitch);
+                
+                // Apply traditional smoothing on top
+                const prev = smoothBuf.current.at(-1) ?? stabilizedPitch;
+                const smoothed = prev * SMOOTHING_FACTOR + stabilizedPitch * (1 - SMOOTHING_FACTOR);
                 smoothBuf.current.push(smoothed);
                 if (smoothBuf.current.length > 10) smoothBuf.current.shift();
 
@@ -125,8 +177,9 @@ export default function usePitchDetection() {
                 setIsVoiced(true);
             } else {
                 setIsVoiced(false);
-                setCurrentNote('--');
-                setCents(0);
+                // Keep the last pitch and note values instead of resetting
+                // setCurrentNote('--');
+                // setCents(0);
             }
         } catch (error) {
             console.error('Error processing audio data:', error);
@@ -154,7 +207,8 @@ export default function usePitchDetection() {
             const { note, centsOff } = frequencyToNote(clampedPitch);
             updateDisplay(clampedPitch, note, centsOff, true);
         } else {
-            updateDisplay(0, '--', 0, false);
+            // Keep last pitch value, just set as not voiced
+            setIsVoiced(false);
         }
     };
 
@@ -170,16 +224,20 @@ export default function usePitchDetection() {
                         const { frequency, volume, isVoiced: voiced } = audioData;
                         
                         if (voiced && frequency > 0) {
-                            // Apply smoothing
-                            const prev = smoothBuf.current.at(-1) ?? frequency;
-                            const smoothed = prev * SMOOTHING_FACTOR + frequency * (1 - SMOOTHING_FACTOR);
+                            // Apply enhanced stability smoothing for singing
+                            const stabilizedPitch = applySingingStability(frequency);
+                            
+                            // Apply traditional smoothing on top
+                            const prev = smoothBuf.current.at(-1) ?? stabilizedPitch;
+                            const smoothed = prev * SMOOTHING_FACTOR + stabilizedPitch * (1 - SMOOTHING_FACTOR);
                             smoothBuf.current.push(smoothed);
                             if (smoothBuf.current.length > 10) smoothBuf.current.shift();
 
                             const { note, centsOff } = frequencyToNote(smoothed);
                             updateDisplay(smoothed, note, centsOff, true);
                         } else {
-                            updateDisplay(0, '--', 0, false);
+                            // Keep last pitch, just mark as not voiced
+                            setIsVoiced(false);
                         }
                     });
                     
@@ -281,7 +339,9 @@ export default function usePitchDetection() {
             setPitchStability(0);
             smoothBuf.current = [];
             stabilityBuffer.current = [];
+            pitchHistoryBuffer.current = [];
             lastStableNote.current = '--';
+            lastSignificantPitch.current = 0;
             audioBuffer.current = new Float32Array(BUFFER_SIZE);
             bufferIndex.current = 0;
             setIsDetecting(false);
