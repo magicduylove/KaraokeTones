@@ -8,7 +8,6 @@ import usePitchDetection from '../hooks/usePitchDetection';
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) => {
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [songPitchMap, setSongPitchMap] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -18,7 +17,6 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
   const [savedSongs, setSavedSongs] = useState([]);
   const [showSongList, setShowSongList] = useState(false);
   
-  const analyzerRef = useRef(new AudioAnalyzer());
   const [userPitchHistory, setUserPitchHistory] = useState([]);
   
   // Use existing pitch detection hook for user's voice
@@ -68,50 +66,45 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
     }
   };
 
+
   /**
-   * Analyze the MP3 file and extract pitch data
+   * Import analysis result from API
    */
-  const analyzeSong = async () => {
-    try {
-      setIsAnalyzing(true);
-      console.log('Starting song analysis...');
-      
-      // Check if already analyzed
-      const existingSongId = await SongStorage.findSongByPath(audioFile);
-      if (existingSongId) {
-        const existingSong = await SongStorage.loadSong(existingSongId);
-        if (existingSong) {
-          setSongPitchMap(existingSong);
-          Alert.alert('Song Already Analyzed', 'Using saved analysis data.');
-          return;
+  const importAnalysisResult = () => {
+    Alert.prompt(
+      'Import Analysis Result',
+      'Paste the analysis JSON result from the API:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Import', 
+          onPress: async (jsonText) => {
+            try {
+              const analysisResult = JSON.parse(jsonText);
+              
+              if (analysisResult.success && analysisResult.analysis) {
+                const songMap = SongPitchMap.fromJSON(analysisResult.analysis);
+                
+                // Save to storage
+                const saveSuccess = await SongStorage.saveSong(songMap);
+                if (saveSuccess) {
+                  setSongPitchMap(songMap);
+                  loadSavedSongs();
+                  Alert.alert('Import Success', `Analysis for "${songMap.title}" has been imported successfully!`);
+                } else {
+                  Alert.alert('Save Error', 'Failed to save imported analysis.');
+                }
+              } else {
+                Alert.alert('Invalid Format', 'The provided JSON does not contain valid analysis data.');
+              }
+            } catch (error) {
+              Alert.alert('Import Error', 'Invalid JSON format. Please check the format and try again.');
+            }
+          }
         }
-      }
-      
-      const analyzer = analyzerRef.current;
-      await analyzer.loadAudioFile(audioFile);
-      const pitchData = await analyzer.analyzeAudioFile();
-      
-      // Extract song name from file path
-      const songName = audioFile.split('/').pop().replace('.mp3', '');
-      const songMap = analyzer.convertToSongPitchMap(pitchData, audioFile, songName, 'Unknown Artist');
-      
-      // Save to storage
-      const saveSuccess = await SongStorage.saveSong(songMap);
-      if (saveSuccess) {
-        console.log('Song analysis saved successfully');
-        loadSavedSongs(); // Refresh song list
-      }
-      
-      setSongPitchMap(songMap);
-      console.log('Song analysis complete:', songMap.title);
-      Alert.alert('Analysis Complete', `Song "${songMap.title}" has been analyzed and saved!`);
-      
-    } catch (error) {
-      console.error('Error analyzing song:', error);
-      Alert.alert('Analysis Error', error.message);
-    } finally {
-      setIsAnalyzing(false);
-    }
+      ],
+      'plain-text'
+    );
   };
 
   /**
@@ -140,12 +133,61 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
 
       // Load audio if not already loaded
       if (!audioSound) {
-        console.log('Loading audio:', audioFile);
-        const { sound } = await Audio.Sound.createAsync(
-          { uri: audioFile }, // For local files, you might need to use require() instead
-          { shouldPlay: false, isLooping: false },
-          onPlaybackStatusUpdate
-        );
+        console.log('Loading audio for playback:', audioFile);
+        
+        // Try different path formats for local files
+        const pathsToTry = [
+          // Try require() for bundled assets first
+          (() => {
+            try {
+              return require('../musicstore/BeoDatMayTroi.mp3');
+            } catch {
+              return null;
+            }
+          })(),
+          // Try relative paths
+          { uri: './musicstore/BeoDatMayTroi.mp3' },
+          { uri: 'musicstore/BeoDatMayTroi.mp3' },
+          { uri: '/musicstore/BeoDatMayTroi.mp3' },
+          // Try original path
+          { uri: audioFile },
+          // Try file:// protocol  
+          { uri: `file://${audioFile}` },
+          { uri: `file:///${audioFile}` },
+          // Try asset:// protocol
+          { uri: `asset:/musicstore/BeoDatMayTroi.mp3` },
+        ].filter(Boolean); // Remove null entries
+
+        let audioSource = null;
+        let sound = null;
+
+        for (const testSource of pathsToTry) {
+          try {
+            console.log('Attempting to load:', testSource);
+            const result = await Audio.Sound.createAsync(
+              testSource,
+              { 
+                shouldPlay: false, 
+                isLooping: false,
+                volume: 1.0,
+                progressUpdateIntervalMillis: 100
+              },
+              onPlaybackStatusUpdate
+            );
+            
+            sound = result.sound;
+            audioSource = testSource;
+            console.log('✅ Successfully loaded audio with:', testSource);
+            break;
+          } catch (err) {
+            console.log('❌ Failed to load with:', testSource, err.message);
+          }
+        }
+
+        if (!sound) {
+          throw new Error('Could not load audio file with any path format');
+        }
+
         setAudioSound(sound);
         
         // Start playing
@@ -158,7 +200,8 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
       }
     } catch (error) {
       console.error('Error playing audio:', error);
-      Alert.alert('Playback Error', 'Failed to play audio file. Make sure the file exists.');
+      console.error('Audio file path:', audioFile);
+      Alert.alert('Playback Error', `Failed to play audio file: ${error.message}\n\nFile: ${audioFile}\n\nMake sure the MP3 file exists in the musicstore folder.`);
     }
   };
 
@@ -374,6 +417,19 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
         )}
       </View>
 
+      {/* Instructions */}
+      <View style={styles.instructionsCard}>
+        <Text style={styles.instructionsTitle}>🎵 How to Use:</Text>
+        <Text style={styles.instructionsText}>
+          1. Run API Server (in separate terminal):{'\n'}
+          <Text style={styles.codeText}>cd analysis-api{'\n'}npm install{'\n'}npm start</Text>
+          {'\n\n'}2. Analyze Song (via API):{'\n'}
+          <Text style={styles.codeText}>curl -X POST http://localhost:3001/analyze \{'\n'}  -F "audio=@musicstore/BeoDatMayTroi.mp3" \{'\n'}  -F "songTitle=BeoDatMayTroi"</Text>
+          {'\n\n'}3. Import Result - Copy JSON output and paste into "📥 Import Analysis"
+          {'\n\n'}4. Practice - Play song + Start mic to compare your pitch vs song
+        </Text>
+      </View>
+
       {/* Pitch Visualization using React Native Views */}
       <View style={styles.canvasContainer}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -460,15 +516,6 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
 
       {/* Controls */}
       <View style={styles.controls}>
-        <TouchableOpacity 
-          style={[styles.button, isAnalyzing && styles.buttonDisabled]}
-          onPress={analyzeSong}
-          disabled={isAnalyzing}
-        >
-          <Text style={styles.buttonText}>
-            {isAnalyzing ? 'Analyzing...' : 'Analyze Song'}
-          </Text>
-        </TouchableOpacity>
 
         <TouchableOpacity 
           style={[styles.button, !songPitchMap && styles.buttonDisabled]}
@@ -490,13 +537,21 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
         )}
 
         <TouchableOpacity 
+          style={[styles.button, { backgroundColor: '#3498db' }]}
+          onPress={importAnalysisResult}
+        >
+          <Text style={styles.buttonText}>📥 Import Analysis</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity 
           style={[styles.button, { backgroundColor: '#ff6b35' }]}
           onPress={() => setShowSongList(!showSongList)}
         >
           <Text style={styles.buttonText}>
-            {showSongList ? 'Hide Library' : `Song Library (${savedSongs.length})`}
+            {showSongList ? 'Hide Songs' : `Songs (${savedSongs.length})`}
           </Text>
         </TouchableOpacity>
+
 
         <TouchableOpacity 
           style={[styles.button, isRecording && styles.buttonActive]}
@@ -511,9 +566,9 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
       {/* Song Library */}
       {showSongList && (
         <View style={styles.songLibrary}>
-          <Text style={styles.libraryTitle}>🎵 Song Library</Text>
+          <Text style={styles.libraryTitle}>🎵 Analyzed Songs</Text>
           {savedSongs.length === 0 ? (
-            <Text style={styles.noSongsText}>No songs analyzed yet. Analyze a song to add it to your library!</Text>
+            <Text style={styles.noSongsText}>No songs imported yet. Use "📥 Import Analysis" to add songs.</Text>
           ) : (
             <ScrollView style={styles.songListContainer}>
               {savedSongs.map((song) => (
@@ -528,15 +583,12 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
                   <View style={styles.songInfo}>
                     <Text style={styles.songTitle}>{song.title}</Text>
                     <Text style={styles.songDetails}>
-                      {song.artist} • {SongPitchMap.formatTime(song.duration)} • {song.segmentCount} segments
-                    </Text>
-                    <Text style={styles.songMeta}>
-                      Analyzed: {new Date(song.analyzedAt).toLocaleDateString()}
+                      {SongPitchMap.formatTime(song.duration)} • {song.segmentCount} segments
                     </Text>
                   </View>
                   <View style={styles.songActions}>
                     {songPitchMap?.songId === song.songId && (
-                      <Text style={styles.currentSongIndicator}>▶ Current</Text>
+                      <Text style={styles.currentSongIndicator}>▶</Text>
                     )}
                   </View>
                 </TouchableOpacity>
@@ -687,16 +739,19 @@ const styles = StyleSheet.create({
   },
   controls: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
     marginBottom: 20,
+    paddingHorizontal: 10,
   },
   button: {
     backgroundColor: '#333',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
     borderRadius: 8,
-    minWidth: 100,
+    minWidth: 90,
     alignItems: 'center',
+    margin: 5,
   },
   buttonActive: {
     backgroundColor: '#ff4444',
@@ -840,6 +895,35 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
     marginBottom: 10,
+  },
+  // Instructions card styles
+  instructionsCard: {
+    backgroundColor: '#f8f9fa',
+    margin: 15,
+    padding: 15,
+    borderRadius: 10,
+    borderLeftWidth: 4,
+    borderLeftColor: '#3498db',
+  },
+  instructionsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 10,
+  },
+  instructionsText: {
+    fontSize: 13,
+    color: '#34495e',
+    lineHeight: 18,
+  },
+  codeText: {
+    fontFamily: 'monospace',
+    backgroundColor: '#ecf0f1',
+    color: '#2c3e50',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+    fontSize: 12,
   },
 });
 
