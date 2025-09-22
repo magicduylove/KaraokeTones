@@ -68,43 +68,120 @@ const PitchComparisonPlayer = ({ audioFile = 'musicstore/BeoDatMayTroi.mp3' }) =
 
 
   /**
-   * Import analysis result from API
+   * Import analysis result from AI
    */
   const importAnalysisResult = () => {
     Alert.prompt(
-      'Import Analysis Result',
-      'Paste the analysis JSON result from the API:',
+      'Import AI Analysis',
+      'Paste the AI analysis JSON result:',
       [
         { text: 'Cancel', style: 'cancel' },
         { 
           text: 'Import', 
           onPress: async (jsonText) => {
             try {
-              const analysisResult = JSON.parse(jsonText);
+              const aiResult = JSON.parse(jsonText);
               
-              if (analysisResult.success && analysisResult.analysis) {
-                const songMap = SongPitchMap.fromJSON(analysisResult.analysis);
-                
+              // Convert AI format to our internal format
+              const songMap = convertAIAnalysisToSongMap(aiResult);
+              
+              if (songMap) {
                 // Save to storage
                 const saveSuccess = await SongStorage.saveSong(songMap);
                 if (saveSuccess) {
                   setSongPitchMap(songMap);
                   loadSavedSongs();
-                  Alert.alert('Import Success', `Analysis for "${songMap.title}" has been imported successfully!`);
+                  Alert.alert(
+                    'Import Success', 
+                    `"${songMap.title}" imported successfully!\n\nSegments: ${songMap.timeline.length}\nDuration: ${SongPitchMap.formatTime(songMap.totalDuration)}\nRange: ${aiResult.vocalRange?.lowest || 'N/A'}-${aiResult.vocalRange?.highest || 'N/A'}`
+                  );
                 } else {
                   Alert.alert('Save Error', 'Failed to save imported analysis.');
                 }
               } else {
-                Alert.alert('Invalid Format', 'The provided JSON does not contain valid analysis data.');
+                Alert.alert('Invalid Format', 'The provided JSON does not contain valid AI analysis data.');
               }
             } catch (error) {
-              Alert.alert('Import Error', 'Invalid JSON format. Please check the format and try again.');
+              console.error('Import error:', error);
+              Alert.alert('Import Error', `Invalid JSON format: ${error.message}`);
             }
           }
         }
       ],
       'plain-text'
     );
+  };
+
+  /**
+   * Convert AI analysis format to our internal SongPitchMap format
+   */
+  const convertAIAnalysisToSongMap = (aiResult) => {
+    try {
+      // Validate AI result structure
+      if (!aiResult.songInfo || !aiResult.pitchTimeline) {
+        console.error('Missing required fields: songInfo or pitchTimeline');
+        return null;
+      }
+
+      // Generate song ID
+      const songId = `${aiResult.songInfo.title.toLowerCase().replace(/\s+/g, '-')}_${Date.now()}`;
+
+      // Convert AI pitch timeline to our timeline format
+      const timeline = aiResult.pitchTimeline
+        .filter(segment => segment.isVocal && segment.confidence > 0.7) // Only include vocal segments with good confidence
+        .map((segment, index) => ({
+          startTime: segment.startTime,
+          endTime: segment.endTime,
+          duration: segment.endTime - segment.startTime,
+          note: segment.note,
+          frequency: segment.frequency,
+          confidence: segment.confidence,
+          section: segment.section || 'unknown',
+          id: `segment_${index}`
+        }));
+
+      // Create song map object
+      const songMap = {
+        songId: songId,
+        title: aiResult.songInfo.title,
+        artist: aiResult.songInfo.artist || 'Unknown Artist',
+        filePath: 'ai_analyzed',
+        totalDuration: aiResult.songInfo.duration,
+        timeline: timeline,
+        metadata: {
+          version: '1.0',
+          analyzedAt: aiResult.analysisMetadata?.analyzedAt || new Date().toISOString(),
+          sampleRate: 44100,
+          bpm: aiResult.songInfo.bpm,
+          key: aiResult.songInfo.key,
+          genre: aiResult.songInfo.genre,
+          language: aiResult.songInfo.language,
+          vocalRange: aiResult.vocalRange,
+          songStructure: aiResult.songStructure,
+          analysisMethod: aiResult.analysisMetadata?.method || 'AI_analysis',
+          accuracy: aiResult.analysisMetadata?.accuracy || 0.9,
+          segmentCount: timeline.length,
+          aiMetadata: {
+            originalSegments: aiResult.pitchTimeline.length,
+            filteredSegments: timeline.length,
+            averageConfidence: timeline.reduce((sum, seg) => sum + seg.confidence, 0) / timeline.length
+          }
+        }
+      };
+
+      console.log('Converted AI analysis:', {
+        title: songMap.title,
+        duration: songMap.totalDuration,
+        segments: songMap.timeline.length,
+        range: aiResult.vocalRange
+      });
+
+      return songMap;
+      
+    } catch (error) {
+      console.error('Error converting AI analysis:', error);
+      return null;
+    }
   };
 
   /**
