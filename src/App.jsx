@@ -1,140 +1,139 @@
 /**
- * Main App Component - Clean React architecture
+ * PitchKaraoke - Web-based singing practice app with real-time pitch detection
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, Alert, Modal } from 'react-native';
-import { PracticeView } from './views/PracticeView.jsx';
-import { SongLibraryView } from './views/SongLibraryView.jsx';
-import { SongController } from './controllers/SongController.js';
-import { PracticeController } from './controllers/PracticeController.js';
+import PitchDetector from './components/PitchDetector';
+import MusicImporter from './components/MusicImporter';
+import './App.css';
 
 export default function App() {
-  const [showSongLibrary, setShowSongLibrary] = useState(false);
-  const [isInitialized, setIsInitialized] = useState(false);
-  
-  // Controllers - using refs to maintain instances
-  const songControllerRef = useRef(null);
-  const practiceControllerRef = useRef(null);
+  const [audioFile, setAudioFile] = useState(null);
+  const [isRecording, setIsRecording] = useState(false);
+  const [pitchData, setPitchData] = useState([]);
+  const [currentPitch, setCurrentPitch] = useState(null);
+  const [status, setStatus] = useState('Ready to practice singing!');
 
   /**
-   * Initialize application
+   * Handle audio file import
    */
-  useEffect(() => {
-    const initializeApp = async () => {
-      try {
-        // Initialize controllers
-        songControllerRef.current = new SongController();
-        practiceControllerRef.current = new PracticeController(songControllerRef.current);
-
-        // Initialize song controller
-        await songControllerRef.current.initialize();
-
-        setIsInitialized(true);
-        console.log('✅ Application initialized successfully');
-      } catch (error) {
-        console.error('❌ Failed to initialize application:', error);
-        Alert.alert(
-          'Initialization Error',
-          'Failed to initialize the application. Please restart the app.',
-          [{ text: 'OK' }]
-        );
-      }
-    };
-
-    initializeApp();
-
-    // Cleanup on unmount
-    return () => {
-      if (practiceControllerRef.current) {
-        practiceControllerRef.current.cleanup().catch(console.error);
-      }
-      if (songControllerRef.current) {
-        songControllerRef.current.cleanup();
-      }
-    };
-  }, []);
+  const handleAudioImport = (file) => {
+    setAudioFile(file);
+    setStatus(`Loaded: ${file.name}`);
+    console.log('✅ Audio file imported:', file.name);
+  };
 
   /**
-   * Handle song import from analysis JSON
+   * Handle pitch detection data
    */
-  const handleImportSong = async (analysisJSON) => {
-    try {
-      const song = await songControllerRef.current.importSongFromAnalysis(analysisJSON);
-      console.log('✅ Song imported successfully:', song.title);
-      return song;
-    } catch (error) {
-      console.error('❌ Failed to import song:', error);
-      throw error;
+  const handlePitchData = (pitch, note) => {
+    setCurrentPitch({ pitch, note, timestamp: Date.now() });
+    setPitchData(prev => [...prev.slice(-100), { pitch, note, timestamp: Date.now() }]);
+  };
+
+  /**
+   * Toggle recording state
+   */
+  const toggleRecording = () => {
+    setIsRecording(!isRecording);
+    if (!isRecording) {
+      setStatus('Recording and analyzing your voice...');
+      setPitchData([]);
+    } else {
+      setStatus('Recording stopped. Import a song to practice!');
     }
   };
 
   /**
-   * Handle song selection from library
+   * Clear current session
    */
-  const handleSongSelected = (song) => {
-    console.log('✅ Song selected:', song.title);
-    setShowSongLibrary(false);
+  const clearSession = () => {
+    setAudioFile(null);
+    setPitchData([]);
+    setCurrentPitch(null);
+    setStatus('Session cleared. Ready for new practice!');
+    setIsRecording(false);
   };
-
-  /**
-   * Open song library
-   */
-  const handleOpenSongLibrary = () => {
-    setShowSongLibrary(true);
-  };
-
-  /**
-   * Close song library
-   */
-  const handleCloseSongLibrary = () => {
-    setShowSongLibrary(false);
-  };
-
-  // Show loading state while initializing
-  if (!isInitialized) {
-    return (
-      <View style={[styles.container, styles.centerContent]}>
-        {/* You could add a loading spinner here */}
-      </View>
-    );
-  }
 
   return (
-    <View style={styles.container}>
-      
-      {/* Main Practice Interface */}
-      <PracticeView
-        practiceController={practiceControllerRef.current}
-        songController={songControllerRef.current}
-        onImportSong={handleImportSong}
-        onSelectSong={handleOpenSongLibrary}
-      />
+    <div className="app">
+      <header className="app-header">
+        <h1>🎤 PitchKaraoke</h1>
+        <p>Practice singing with real-time pitch detection</p>
+      </header>
 
-      {/* Song Library Modal */}
-      <Modal
-        visible={showSongLibrary}
-        animationType="slide"
-        presentationStyle="fullScreen"
-      >
-        <SongLibraryView
-          songController={songControllerRef.current}
-          onSongSelected={handleSongSelected}
-          onClose={handleCloseSongLibrary}
+      <main className="pitch-container">
+        {/* Status Display */}
+        <div className={`status-message ${
+          status.includes('Error') ? 'status-error' :
+          status.includes('Recording') ? 'status-info' :
+          'status-success'
+        }`}>
+          {status}
+        </div>
+
+        {/* Music Import Section */}
+        <MusicImporter
+          onAudioImport={handleAudioImport}
+          audioFile={audioFile}
         />
-      </Modal>
 
-    </View>
+        {/* Audio Controls */}
+        <div className="audio-controls">
+          <button
+            onClick={toggleRecording}
+            className={isRecording ? 'recording' : ''}
+          >
+            {isRecording ? '🛑 Stop Recording' : '🎤 Start Recording'}
+          </button>
+          <button onClick={clearSession}>
+            🔄 Clear Session
+          </button>
+        </div>
+
+        {/* Current Pitch Display */}
+        {currentPitch && (
+          <div className="pitch-display">
+            <div className="pitch-value">
+              {currentPitch.pitch ? `${currentPitch.pitch.toFixed(1)} Hz` : 'No pitch detected'}
+            </div>
+            <div className="pitch-note">
+              {currentPitch.note || 'Silent'}
+            </div>
+          </div>
+        )}
+
+        {/* Pitch Detection Component */}
+        <PitchDetector
+          isActive={isRecording}
+          onPitchDetected={handlePitchData}
+          audioFile={audioFile}
+        />
+
+        {/* Pitch History Visualization */}
+        {pitchData.length > 0 && (
+          <div className="pitch-history">
+            <h3>Pitch History</h3>
+            <div className="pitch-graph">
+              {pitchData.slice(-20).map((data, index) => (
+                <div
+                  key={index}
+                  className="pitch-bar"
+                  style={{
+                    height: `${Math.min((data.pitch || 0) / 10, 100)}px`,
+                    backgroundColor: data.pitch ? '#4CAF50' : '#666'
+                  }}
+                  title={`${data.note || 'Silent'} - ${(data.pitch || 0).toFixed(1)}Hz`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </main>
+
+      <footer className="app-footer">
+        <p>Web-only version • No mobile dependencies • Real-time pitch detection</p>
+      </footer>
+    </div>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-});

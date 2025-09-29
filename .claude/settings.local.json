@@ -9,7 +9,10 @@
       "Bash(npm install:*)",
       "Bash(npm uninstall:*)",
       "Bash(npm ls:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git pull:*)",
+      "Bash(npm run dev:*)"
     ],
     "deny": []
   }

@@ -1,0 +1,93 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 40px 20px;
+  text-align: center;
+  color: white;
+}
+
+.app-header h1 {
+  font-size: 3em;
+  margin-bottom: 10px;
+  text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+}
+
+.app-header p {
+  font-size: 1.2em;
+  opacity: 0.9;
+}
+
+.app-footer {
+  background: #1a1a1a;
+  padding: 20px;
+  text-align: center;
+  color: #ccc;
+  margin-top: auto;
+}
+
+.audio-controls button.recording {
+  background-color: #f44336;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+.pitch-history {
+  width: 100%;
+  max-width: 800px;
+  margin: 20px 0;
+  padding: 20px;
+  background-color: #1a1a1a;
+  border-radius: 10px;
+}
+
+.pitch-history h3 {
+  margin-bottom: 15px;
+  color: #fff;
+  text-align: center;
+}
+
+.pitch-graph {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 100px;
+  gap: 2px;
+  background-color: #000;
+  border-radius: 5px;
+  padding: 10px;
+}
+
+.pitch-bar {
+  width: 8px;
+  min-height: 2px;
+  border-radius: 2px;
+  transition: height 0.1s ease;
+}
+
+.music-importer {
+  width: 100%;
+  max-width: 600px;
+  margin: 20px 0;
+}
+
+.current-file {
+  margin-top: 15px;
+  padding: 10px;
+  background-color: #2a2a2a;
+  border-radius: 5px;
+  text-align: center;
+}
+
+.current-file strong {
+  color: #4CAF50;
+}
