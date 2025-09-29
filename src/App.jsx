@@ -162,10 +162,11 @@ export default function App() {
     });
 
     controller.on('songAnalysisCompleted', (data) => {
+      console.log('🎵 Song analysis completed, setting state:', data);
       setAppState(prev => ({
         ...prev,
         isAnalyzing: false,
-        songAnalysis: data.analysisInfo,
+        songAnalysis: data.analysisData,
         status: `Song analyzed! Ready for pitch comparison practice.`
       }));
     });
@@ -333,6 +334,9 @@ export default function App() {
           sessionStats={appState.sessionStats}
           pitchComparison={appState.pitchComparison}
           songAnalysis={appState.songAnalysis}
+          currentTime={appState.currentTime}
+          duration={appState.duration}
+          isPlaying={appState.isPlaying}
         />
       </main>
 
