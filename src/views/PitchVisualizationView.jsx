@@ -1,8 +1,8 @@
 /**
- * PitchVisualizationView - View component for pitch detection visualization
+ * PitchVisualizationView - View component for pitch detection visualization (piano-roll view)
  */
 
-import React from 'react';
+import { useId, useMemo } from 'react';
 
 const PitchVisualizationView = ({
   currentPitch,
@@ -15,6 +15,21 @@ const PitchVisualizationView = ({
   duration = 0,
   isPlaying = false
 }) => {
+  // ===== Constants & helpers =====
+  const C4_FREQ = 261.63; // reference for note calc
+  const VIEW = { left: 70, top: 24, width: 760, height: 240 }; // drawing box
+  const staffGridId = useId(); // reserved (no external collisions if you add <defs> later)
+  const toNoteNum = (f) => 12 * Math.log2(f / C4_FREQ);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const safeDen = (x) => (x === 0 ? 1 : x);
+
+  const buildPath = (pts) => {
+    if (!pts?.length) return '';
+    let d = `M ${VIEW.left + pts[0].x} ${pts[0].y}`;
+    for (let i = 1; i < pts.length; i++) d += ` L ${VIEW.left + pts[i].x} ${pts[i].y}`;
+    return d;
+  };
+
   /**
    * Get color based on pitch confidence
    */
@@ -26,7 +41,7 @@ const PitchVisualizationView = ({
   };
 
   /**
-   * Get pitch bar height based on frequency
+   * Get pitch bar height based on frequency (for recent history mini-graph)
    */
   const getPitchBarHeight = (frequency) => {
     if (!frequency) return 2;
@@ -47,6 +62,7 @@ const PitchVisualizationView = ({
 
   /**
    * Get frequency range and musical note mapping
+   * Returns: { minNote, maxNote, noteLabels, minFreq, maxFreq, range, showOnlyMainNotes }
    */
   const getMusicalRange = () => {
     if (!songAnalysis || !songAnalysis.pitchTimeline) return null;
@@ -59,31 +75,28 @@ const PitchVisualizationView = ({
     const maxFreq = Math.max(...frequencies);
 
     // Convert to note numbers (C4 = 0)
-    const minNoteRaw = 12 * Math.log2(minFreq / 261.63);
-    const maxNoteRaw = 12 * Math.log2(maxFreq / 261.63);
+    const minNoteRaw = 12 * Math.log2(minFreq / C4_FREQ);
+    const maxNoteRaw = 12 * Math.log2(maxFreq / C4_FREQ);
 
     // Round to nearest semitone and add some padding
     const minNote = Math.floor(minNoteRaw) - 2; // Add 2 semitones padding below
-    const maxNote = Math.ceil(maxNoteRaw) + 2;   // Add 2 semitones padding above
+    const maxNote = Math.ceil(maxNoteRaw) + 2;  // Add 2 semitones padding above
+    const totalRange = Math.max(1, maxNote - minNote);
 
     // Create note labels with smart filtering
     const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-    const noteLabels = [];
-    const totalRange = maxNote - minNote;
-
-    // If range is too large (>15 semitones), show only natural notes and important sharps
     const showOnlyMainNotes = totalRange > 15;
 
+    const noteLabels = [];
     for (let noteNum = minNote; noteNum <= maxNote; noteNum++) {
       const octave = Math.floor(noteNum / 12) + 4;
       const noteIndex = ((noteNum % 12) + 12) % 12;
       const noteName = noteNames[noteIndex];
-      const frequency = 261.63 * Math.pow(2, noteNum / 12);
+      const frequency = C4_FREQ * Math.pow(2, noteNum / 12);
 
       // Filter out some sharps/flats if range is too large
       const isSharp = noteName.includes('#');
-      const shouldShow = !showOnlyMainNotes || !isSharp ||
-                        ['C#', 'F#', 'G#'].includes(noteName); // Keep important sharps
+      const shouldShow = !showOnlyMainNotes || !isSharp || ['C#', 'F#', 'G#'].includes(noteName);
 
       if (shouldShow) {
         noteLabels.push({
@@ -91,7 +104,8 @@ const PitchVisualizationView = ({
           name: `${noteName}${octave}`,
           frequency,
           isSharp,
-          y: 280 - ((noteNum - minNote) / (maxNote - minNote)) * 240 // Map to 280px height with 20px margins
+          y: VIEW.top + VIEW.height
+            - ((noteNum - minNote) / totalRange) * VIEW.height // map to piano-roll Y
         });
       }
     }
@@ -108,66 +122,85 @@ const PitchVisualizationView = ({
   };
 
   /**
-   * Get pitch timeline data as musical notes
+   * Get pitch timeline data (downsampled + smoothed) for song line
    */
   const getPitchTimelineData = () => {
-    if (!songAnalysis || !songAnalysis.pitchTimeline) {
-      return [];
-    }
-
+    if (!songAnalysis?.pitchTimeline) return [];
     const musicalRange = getMusicalRange();
     if (!musicalRange) return [];
 
-    const songDuration = songAnalysis.duration || duration;
-    const timelineWidth = 800;
+    const songDuration = songAnalysis.duration || duration || 1;
+    const raw = songAnalysis.pitchTimeline.filter(p => p.frequency && p.frequency > 80);
+    if (!raw.length) return [];
 
-    // Filter and map pitch points to visual dots
-    return songAnalysis.pitchTimeline
-      .filter(p => p.frequency && p.frequency > 80)
-      .map(point => {
-        const noteNum = 12 * Math.log2(point.frequency / 261.63);
-        const x = (point.time / songDuration) * timelineWidth;
-        const y = 280 - ((noteNum - musicalRange.minNote) / (musicalRange.maxNote - musicalRange.minNote)) * 240;
+    // Downsample to keep it readable (~1000 points)
+    const step = Math.ceil(raw.length / 1000) || 1;
+    const sampled = [];
+    for (let i = 0; i < raw.length; i += step) {
+      const p = raw[i];
+      const noteNum = toNoteNum(p.frequency);
+      const x = clamp((p.time / songDuration) * VIEW.width, 0, VIEW.width);
+      const y = VIEW.top + VIEW.height
+        - ((noteNum - musicalRange.minNote) / safeDen(musicalRange.maxNote - musicalRange.minNote)) * VIEW.height;
+      sampled.push({ x, y, time: p.time, frequency: p.frequency, confidence: p.confidence });
+    }
 
-        return {
-          x: Math.max(0, Math.min(timelineWidth, x)),
-          y: Math.max(20, Math.min(280, y)),
-          frequency: point.frequency,
-          note: point.note,
-          confidence: point.confidence,
-          time: point.time
-        };
-      });
+    // Light moving-average smoothing on Y
+    const k = 5;
+    return sampled.map((p, i) => {
+      let acc = 0, cnt = 0;
+      for (let j = i - Math.floor(k / 2); j <= i + Math.floor(k / 2); j++) {
+        if (j >= 0 && j < sampled.length) { acc += sampled[j].y; cnt++; }
+      }
+      return { ...p, y: acc / cnt };
+    });
   };
 
   /**
-   * Get user pitch overlay data for current session
+   * Get user pitch overlay path points (line)
    */
-  const getUserPitchOverlay = () => {
-    if (!pitchHistory.length || !duration) return [];
-
+  const getUserPathData = () => {
+    if (!isRecording || !pitchHistory.length) return [];
     const musicalRange = getMusicalRange();
     if (!musicalRange) return [];
+    const songDuration = songAnalysis?.duration || duration || 1;
 
-    const songDuration = songAnalysis?.duration || duration;
+    const pts = pitchHistory
+      .filter(p => p?.frequency)
+      .map((p, idx) => {
+        const timeProgress = (currentTime - (pitchHistory.length - idx) * 0.1) / songDuration;
+        const noteNum = toNoteNum(p.frequency);
+        const x = clamp(timeProgress * VIEW.width, 0, VIEW.width);
+        const y = VIEW.top + VIEW.height
+          - ((noteNum - musicalRange.minNote) / safeDen(musicalRange.maxNote - musicalRange.minNote)) * VIEW.height;
+        return { x, y };
+      })
+      .filter(p => p.x >= 0 && p.x <= VIEW.width);
 
-    return pitchHistory.map((pitch, index) => {
-      if (!pitch.frequency) return null;
-
-      const timeProgress = (currentTime - (pitchHistory.length - index) * 0.1) / songDuration;
-      const noteNum = 12 * Math.log2(pitch.frequency / 261.63);
-      const x = timeProgress * 800;
-      const y = 280 - ((noteNum - musicalRange.minNote) / (musicalRange.maxNote - musicalRange.minNote)) * 240;
-
-      return {
-        x: Math.max(0, Math.min(800, x)),
-        y: Math.max(20, Math.min(280, y)),
-        frequency: pitch.frequency,
-        confidence: pitch.confidence,
-        note: pitch.note
-      };
-    }).filter(p => p && p.x >= 0 && p.x <= 800);
+    // Tiny smoothing
+    const k = 3;
+    return pts.map((p, i) => {
+      let acc = 0, c = 0;
+      for (let j = i - 1; j <= i + 1; j++) if (j >= 0 && j < pts.length) { acc += pts[j].y; c++; }
+      return { ...p, y: acc / c };
+    });
   };
+
+  // ===== Memoized computations =====
+  const musicalRange = useMemo(() => getMusicalRange(), [songAnalysis, duration]);
+  const timelineData = useMemo(
+    () => getPitchTimelineData(),
+    [songAnalysis, duration, musicalRange?.minNote, musicalRange?.maxNote]
+  );
+  const songPath = useMemo(() => buildPath(timelineData), [timelineData]);
+
+  const userData = useMemo(
+    () => getUserPathData(),
+    [pitchHistory, currentTime, isRecording, songAnalysis?.duration, duration, musicalRange?.minNote, musicalRange?.maxNote]
+  );
+  const userPath = useMemo(() => buildPath(userData), [userData]);
+
+  const playDen = (songAnalysis?.duration || duration || 1);
 
   return (
     <div className="pitch-visualization-view">
@@ -175,7 +208,7 @@ const PitchVisualizationView = ({
       <div className="current-pitch-section">
         <h3>Current Pitch</h3>
         <div className="pitch-display">
-          <div className="pitch-value">
+          <div className="pitch-value" aria-live="polite">
             {currentPitch ? formatFrequency(currentPitch.frequency) : 'No signal'}
           </div>
           <div className="pitch-note">
@@ -215,150 +248,204 @@ const PitchVisualizationView = ({
         )}
       </div>
 
-      {/* Musical Note Timeline Visualization */}
-      {songAnalysis && (songAnalysis.duration > 0 || duration > 0) && (() => {
-        const musicalRange = getMusicalRange();
-        if (!musicalRange) return null;
+      {/* Piano-Roll Pitch Map (clean view) */}
+      {songAnalysis && (songAnalysis.duration > 0 || duration > 0) && musicalRange && (
+        <div className="pitch-timeline-section">
+          <h3>Pitch Map (Piano-Roll) {isPlaying && '(Playing)'}</h3>
+          <div className="musical-timeline">
+            <svg
+              width={VIEW.left + VIEW.width + 80}
+              height={VIEW.top + VIEW.height + 60}
+              className="musical-timeline-svg"
+            >
+              {/* Background */}
+              <rect
+                x={VIEW.left}
+                y={VIEW.top}
+                width={VIEW.width}
+                height={VIEW.height}
+                rx="6"
+                fill="#0b0b0b"
+              />
 
-        return (
-          <div className="pitch-timeline-section">
-            <h3>Musical Notes Timeline {isPlaying && '(Playing)'}</h3>
-            <div className="musical-timeline">
-              <svg width="900" height="320" className="musical-timeline-svg">
-                {/* Background staff lines */}
-                <defs>
-                  <pattern id="staffGrid" width="20" height="320" patternUnits="userSpaceOnUse">
-                    <line x1="0" y1="0" x2="0" y2="320" stroke="#222" strokeWidth="1"/>
-                  </pattern>
-                </defs>
-                <rect width="800" height="280" x="80" y="20" fill="url(#staffGrid)" />
-
-                {/* Note labels on Y-axis */}
-                {musicalRange.noteLabels.map((noteLabel, index) => (
-                  <g key={noteLabel.name}>
-                    {/* Horizontal grid line for each note */}
-                    <line
-                      x1="80"
-                      y1={noteLabel.y}
-                      x2="880"
-                      y2={noteLabel.y}
-                      stroke={noteLabel.isSharp ? '#2a2a2a' : '#444'}
-                      strokeWidth={noteLabel.isSharp ? "1" : "1.5"}
-                      opacity={noteLabel.isSharp ? "0.3" : "0.6"}
+              {/* Horizontal lanes (natural notes only, alternating rows) */}
+              {musicalRange.noteLabels
+                .filter(n => !n.isSharp)
+                .map((nl, i) => (
+                  <g key={nl.name}>
+                    <rect
+                      x={VIEW.left}
+                      y={nl.y - (VIEW.height / safeDen(musicalRange.maxNote - musicalRange.minNote)) / 2}
+                      width={VIEW.width}
+                      height={VIEW.height / safeDen(musicalRange.maxNote - musicalRange.minNote)}
+                      fill={i % 2 ? '#101010' : '#141414'}
+                      opacity="0.9"
                     />
-                    {/* Note name label */}
-                    <text
-                      x="75"
-                      y={noteLabel.y + 4}
-                      fill={noteLabel.isSharp ? '#888' : '#ccc'}
-                      fontSize={noteLabel.isSharp ? "10" : "12"}
-                      textAnchor="end"
-                      fontFamily="monospace"
-                      fontWeight={noteLabel.isSharp ? "normal" : "bold"}
-                    >
-                      {noteLabel.name}
-                    </text>
+                    <line
+                      x1={VIEW.left}
+                      x2={VIEW.left + VIEW.width}
+                      y1={nl.y}
+                      y2={nl.y}
+                      stroke="#2d2d2d"
+                      strokeWidth="1"
+                    />
                   </g>
                 ))}
 
-                {/* Song pitch dots */}
-                {getPitchTimelineData().map((point, index) => (
-                  <circle
-                    key={`song-${index}`}
-                    cx={80 + point.x}
-                    cy={point.y}
-                    r="3"
-                    fill={getPitchColor(point.confidence)}
-                    opacity="0.8"
-                    stroke="#333"
-                    strokeWidth="1"
-                  >
-                    <title>{point.note} - {formatFrequency(point.frequency)} at {point.time.toFixed(1)}s</title>
-                  </circle>
-                ))}
+              {/* Y-axis labels removed - notes are now shown inside dots */}
 
-                {/* User pitch overlay dots */}
-                {isRecording && getUserPitchOverlay().map((userPitch, index) => (
-                  <circle
-                    key={`user-${index}`}
-                    cx={80 + userPitch.x}
-                    cy={userPitch.y}
-                    r="4"
-                    fill="#ff4444"
-                    opacity="0.9"
-                    stroke="#fff"
-                    strokeWidth="2"
-                  >
-                    <title>Your Voice: {userPitch.note} - {formatFrequency(userPitch.frequency)}</title>
-                  </circle>
-                ))}
+              {/* Song pitch dots with note labels */}
+              {timelineData.map((point, index) => {
+                const noteNum = toNoteNum(point.frequency);
+                const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                const octave = Math.floor(noteNum / 12) + 4;
+                const noteIndex = ((Math.round(noteNum) % 12) + 12) % 12;
+                const noteName = noteNames[noteIndex];
+                const shortNote = noteName.length > 1 ? noteName : noteName; // Keep as is for now
 
-                {/* Current time cursor */}
-                {(isPlaying || isRecording) && (
-                  <line
-                    x1={80 + (currentTime / (songAnalysis.duration || duration)) * 800}
-                    y1="20"
-                    x2={80 + (currentTime / (songAnalysis.duration || duration)) * 800}
-                    y2="300"
-                    stroke="#00ff00"
-                    strokeWidth="3"
-                    opacity="0.8"
-                  />
-                )}
+                return (
+                  <g key={`song-${index}`}>
+                    <circle
+                      cx={VIEW.left + point.x}
+                      cy={point.y}
+                      r="12"
+                      fill={getPitchColor(point.confidence)}
+                      opacity="0.85"
+                      stroke="#333"
+                      strokeWidth="2"
+                    >
+                      <title>Song: {noteName}{octave} ({formatFrequency(point.frequency)}) at {point.time.toFixed(1)}s</title>
+                    </circle>
+                    <text
+                      x={VIEW.left + point.x}
+                      y={point.y + 4}
+                      fill="#000"
+                      fontSize="10"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                      fontFamily="monospace"
+                    >
+                      {shortNote}
+                    </text>
+                  </g>
+                );
+              })}
 
-                {/* Time labels on X-axis */}
-                {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
-                  const timelineDuration = songAnalysis.duration || duration;
-                  const x = 80 + ratio * 800;
-                  return (
-                    <g key={ratio}>
-                      <line
-                        x1={x}
-                        y1="300"
-                        x2={x}
-                        y2="310"
-                        stroke="#666"
-                        strokeWidth="2"
-                      />
-                      <text
-                        x={x}
-                        y="318"
-                        fill="#ccc"
-                        fontSize="12"
-                        textAnchor="middle"
-                      >
-                        {(ratio * timelineDuration).toFixed(0)}s
-                      </text>
-                    </g>
-                  );
-                })}
+              {/* User pitch overlay dots with note labels */}
+              {isRecording && userData.map((userPitch, index) => {
+                if (!userPitch.frequency) return null;
+                const noteNum = toNoteNum(userPitch.frequency);
+                const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+                const octave = Math.floor(noteNum / 12) + 4;
+                const noteIndex = ((Math.round(noteNum) % 12) + 12) % 12;
+                const noteName = noteNames[noteIndex];
 
-                {/* Axis labels */}
-                <text x="450" y="18" fill="#fff" fontSize="14" textAnchor="middle" fontWeight="bold">
-                  Time →
-                </text>
-                <text x="25" y="160" fill="#fff" fontSize="14" textAnchor="middle" fontWeight="bold" transform="rotate(-90, 25, 160)">
-                  Musical Notes ↑
-                </text>
-              </svg>
+                return (
+                  <g key={`user-${index}`}>
+                    <circle
+                      cx={VIEW.left + userPitch.x}
+                      cy={userPitch.y}
+                      r="14"
+                      fill="#ff5555"
+                      opacity="0.9"
+                      stroke="#fff"
+                      strokeWidth="3"
+                    >
+                      <title>Your Voice: {noteName}{octave} ({formatFrequency(userPitch.frequency)})</title>
+                    </circle>
+                    <text
+                      x={VIEW.left + userPitch.x}
+                      y={userPitch.y + 4}
+                      fill="#fff"
+                      fontSize="10"
+                      fontWeight="bold"
+                      textAnchor="middle"
+                      fontFamily="monospace"
+                    >
+                      {noteName}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Current time cursor */}
+              {(isPlaying || isRecording) && (
+                <line
+                  x1={VIEW.left + (currentTime / playDen) * VIEW.width}
+                  y1={VIEW.top}
+                  x2={VIEW.left + (currentTime / playDen) * VIEW.width}
+                  y2={VIEW.top + VIEW.height}
+                  stroke="#00ff00"
+                  strokeWidth="3"
+                  opacity="0.8"
+                />
+              )}
+
+              {/* Time labels on X-axis */}
+              {[0, 0.25, 0.5, 0.75, 1].map(ratio => {
+                const timelineDuration = songAnalysis.duration || duration || 0;
+                const x = VIEW.left + ratio * VIEW.width;
+                return (
+                  <g key={ratio}>
+                    <line
+                      x1={x}
+                      y1={VIEW.top + VIEW.height}
+                      x2={x}
+                      y2={VIEW.top + VIEW.height + 10}
+                      stroke="#666"
+                      strokeWidth="2"
+                    />
+                    <text
+                      x={x}
+                      y={VIEW.top + VIEW.height + 28}
+                      fill="#ccc"
+                      fontSize="12"
+                      textAnchor="middle"
+                    >
+                      {(ratio * timelineDuration).toFixed(0)}s
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Axis labels */}
+              <text
+                x={VIEW.left + VIEW.width / 2}
+                y={16}
+                fill="#fff"
+                fontSize="14"
+                textAnchor="middle"
+                fontWeight="bold"
+              >
+                Time →
+              </text>
+              <text
+                x="25"
+                y={VIEW.top + VIEW.height / 2}
+                fill="#fff"
+                fontSize="14"
+                textAnchor="middle"
+                fontWeight="bold"
+                transform={`rotate(-90, 25, ${VIEW.top + VIEW.height / 2})`}
+              >
+                Notes ↑
+              </text>
+            </svg>
+          </div>
+
+          <div className="timeline-legend">
+            <div className="legend-item">
+              <div className="legend-line-song">C</div><span>Song Notes</span>
             </div>
-            <div className="timeline-legend">
-              <div className="legend-item">
-                <div className="legend-dot song-dot"></div>
-                <span>Song Notes</span>
-              </div>
-              <div className="legend-item">
-                <div className="legend-dot user-dot"></div>
-                <span>Your Voice</span>
-              </div>
-              <div className="legend-item">
-                <div className="legend-line"></div>
-                <span>Current Position</span>
-              </div>
+            <div className="legend-item">
+              <div className="legend-line-user">G</div><span>Your Voice</span>
+            </div>
+            <div className="legend-item">
+              <div className="legend-line"></div><span>Current Position</span>
             </div>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       {/* Pitch History Visualization */}
       {pitchHistory.length > 0 && (
@@ -427,13 +514,19 @@ const PitchVisualizationView = ({
       {/* Song Analysis Info */}
       {songAnalysis && (
         <div className="song-analysis-info">
-          <h4>Song Analysis</h4>
+          <h4>Song Analysis Results</h4>
           <div className="analysis-details">
             <p>✅ Song analyzed: {songAnalysis.validPitches} vocal points detected</p>
             <p>📊 Coverage: {songAnalysis.coverage}% of song has vocal content</p>
             <p>⏱️ Duration: {songAnalysis.duration.toFixed(1)} seconds</p>
             <p>🎵 Pitch points: {songAnalysis.pitchTimeline?.length || 0}</p>
-            <p>📈 Timeline data: {getPitchTimelineData().length} visual points</p>
+            <p>📈 Timeline data: {timelineData.length} visual points</p>
+            {songAnalysis.analysisType && (
+              <p className={`analysis-type ${songAnalysis.isVocalOnly ? 'vocal-only' : 'full-mix'}`}>
+                🎯 Analysis: {songAnalysis.analysisType}
+                <span className="accuracy-badge">({songAnalysis.accuracy} accuracy)</span>
+              </p>
+            )}
           </div>
         </div>
       )}
@@ -600,16 +693,6 @@ const PitchVisualizationView = ({
           font-style: italic;
         }
 
-        .pitch-history-section {
-          margin: 30px 0;
-        }
-
-        .pitch-history-section h3 {
-          color: #fff;
-          margin-bottom: 15px;
-          text-align: center;
-        }
-
         .pitch-timeline-section {
           margin: 30px 0;
         }
@@ -650,27 +733,49 @@ const PitchVisualizationView = ({
           font-size: 0.95em;
         }
 
-        .legend-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-        }
-
-        .song-dot {
+        .legend-line-song {
+          width: 24px;
+          height: 24px;
           background: #4CAF50;
-          border: 1px solid #333;
+          border-radius: 50%;
+          border: 2px solid #333;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 10px;
+          font-weight: bold;
+          color: #000;
         }
 
-        .user-dot {
-          background: #ff4444;
-          border: 2px solid #fff;
+        .legend-line-user {
+          width: 28px;
+          height: 28px;
+          background: #ff5555;
+          border-radius: 50%;
+          border: 3px solid #fff;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 10px;
+          font-weight: bold;
+          color: #fff;
         }
 
         .legend-line {
-          width: 20px;
-          height: 3px;
-          background: #00ff00;
+          width: 24px;
+          height: 0;
+          border-top: 3px solid #00ff00;
           border-radius: 2px;
+        }
+
+        .pitch-history-section {
+          margin: 30px 0;
+        }
+
+        .pitch-history-section h3 {
+          color: #fff;
+          margin-bottom: 15px;
+          text-align: center;
         }
 
         .pitch-graph {
@@ -698,25 +803,6 @@ const PitchVisualizationView = ({
           margin-top: 10px;
           color: #999;
           font-size: 0.9em;
-        }
-
-        .session-stats {
-          background: #1a1a1a;
-          border-radius: 10px;
-          padding: 20px;
-          margin-top: 20px;
-        }
-
-        .session-stats h3 {
-          color: #fff;
-          margin-bottom: 20px;
-          text-align: center;
-        }
-
-        .stats-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-          gap: 15px;
         }
 
         .pitch-comparison {
@@ -761,17 +847,6 @@ const PitchVisualizationView = ({
           gap: 5px;
         }
 
-        .pitch-note {
-          font-size: 1.2em;
-          font-weight: bold;
-          color: #4CAF50;
-        }
-
-        .pitch-freq {
-          font-size: 0.9em;
-          color: #999;
-        }
-
         .accuracy-display {
           text-align: center;
           margin-top: 10px;
@@ -782,31 +857,8 @@ const PitchVisualizationView = ({
           padding: 15px;
           border-radius: 10px;
           min-width: 200px;
-        }
-
-        .accuracy-perfect {
-          background: linear-gradient(135deg, #4CAF50, #45a049);
           color: white;
-        }
-
-        .accuracy-good {
           background: linear-gradient(135deg, #2196F3, #1976D2);
-          color: white;
-        }
-
-        .accuracy-ok {
-          background: linear-gradient(135deg, #ff9800, #f57c00);
-          color: white;
-        }
-
-        .accuracy-poor {
-          background: linear-gradient(135deg, #f44336, #d32f2f);
-          color: white;
-        }
-
-        .accuracy-no-target {
-          background: linear-gradient(135deg, #666, #555);
-          color: white;
         }
 
         .score {
@@ -837,6 +889,50 @@ const PitchVisualizationView = ({
           color: #ccc;
           margin: 5px 0;
           font-size: 0.9em;
+        }
+
+        .analysis-type {
+          font-weight: bold !important;
+          padding: 8px 12px;
+          border-radius: 6px;
+          margin: 8px 0 !important;
+        }
+
+        .analysis-type.vocal-only {
+          background: rgba(76, 175, 80, 0.2);
+          border: 1px solid #4CAF50;
+          color: #4CAF50 !important;
+        }
+
+        .analysis-type.full-mix {
+          background: rgba(255, 152, 0, 0.2);
+          border: 1px solid #ff9800;
+          color: #ff9800 !important;
+        }
+
+        .accuracy-badge {
+          font-size: 0.8em;
+          opacity: 0.8;
+          margin-left: 8px;
+        }
+
+        .session-stats {
+          background: #1a1a1a;
+          border-radius: 10px;
+          padding: 20px;
+          margin-top: 20px;
+        }
+
+        .session-stats h3 {
+          color: #fff;
+          margin-bottom: 20px;
+          text-align: center;
+        }
+
+        .stats-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          gap: 15px;
         }
 
         .comparison-stats {

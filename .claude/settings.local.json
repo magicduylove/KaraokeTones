@@ -13,7 +13,16 @@
       "Bash(git commit:*)",
       "Bash(git pull:*)",
       "Bash(npm run dev:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(\"/c/Users/magic/AppData/Local/Programs/Python/Python313/python.exe\" --version)",
+      "Bash('C:\\Users\\magic\\AppData\\Local\\Programs\\Python\\Python313\\python.exe' --version)",
+      "Bash(C:/Python313/python.exe:*)",
+      "Bash(python -m pip:*)",
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(findstr:*)",
+      "Bash(C:Python313python.exe -m pip install demucs)",
+      "Bash(start_backend.bat)"
     ],
     "deny": []
   }
