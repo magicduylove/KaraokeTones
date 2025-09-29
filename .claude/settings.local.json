@@ -8,7 +8,8 @@
       "Bash(gh auth:*)",
       "Bash(npm install:*)",
       "Bash(npm uninstall:*)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(git add:*)"
     ],
     "deny": []
   }
