@@ -1,58 +1,253 @@
 /**
- * PitchKaraoke - Web-based singing practice app with real-time pitch detection
+ * PitchKaraoke - Web-based singing practice app with MVC architecture
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import PitchDetector from './components/PitchDetector';
-import MusicImporter from './components/MusicImporter';
+import { PracticeController } from './controllers/PracticeController.js';
+import AudioImportView from './views/AudioImportView.jsx';
+import PitchVisualizationView from './views/PitchVisualizationView.jsx';
+import AudioControlsView from './views/AudioControlsView.jsx';
 import './App.css';
 
 export default function App() {
-  const [audioFile, setAudioFile] = useState(null);
-  const [isRecording, setIsRecording] = useState(false);
-  const [pitchData, setPitchData] = useState([]);
-  const [currentPitch, setCurrentPitch] = useState(null);
-  const [status, setStatus] = useState('Ready to practice singing!');
+  // State
+  const [appState, setAppState] = useState({
+    hasAudio: false,
+    isRecording: false,
+    isPlaying: false,
+    audioInfo: null,
+    currentPitch: null,
+    pitchHistory: [],
+    sessionStats: null,
+    status: 'Ready to practice singing!',
+    error: null,
+    isLoading: false,
+    currentTime: 0,
+    duration: 0,
+    volume: 1
+  });
+
+  // Controller reference
+  const controllerRef = useRef(null);
+
+  /**
+   * Initialize controller and setup event listeners
+   */
+  useEffect(() => {
+    const controller = new PracticeController();
+    controllerRef.current = controller;
+
+    // Setup event listeners
+    setupEventListeners(controller);
+
+    setAppState(prev => ({
+      ...prev,
+      status: 'Application initialized. Import an audio file to start!'
+    }));
+
+    // Cleanup on unmount
+    return () => {
+      controller.dispose();
+    };
+  }, []);
+
+  /**
+   * Setup event listeners for the controller
+   */
+  const setupEventListeners = (controller) => {
+    // Audio import events
+    controller.on('audioImported', (data) => {
+      setAppState(prev => ({
+        ...prev,
+        hasAudio: true,
+        audioInfo: data.audioInfo,
+        status: `Audio loaded: ${data.audioFile.name}`,
+        error: null,
+        isLoading: false
+      }));
+    });
+
+    controller.on('audioRemoved', () => {
+      setAppState(prev => ({
+        ...prev,
+        hasAudio: false,
+        audioInfo: null,
+        isPlaying: false,
+        status: 'Audio removed. Import a new file to continue.',
+        currentTime: 0,
+        duration: 0
+      }));
+    });
+
+    // Recording events
+    controller.on('recordingStarted', () => {
+      setAppState(prev => ({
+        ...prev,
+        isRecording: true,
+        status: 'Recording and analyzing your voice...',
+        pitchHistory: [],
+        sessionStats: null,
+        error: null
+      }));
+    });
+
+    controller.on('recordingStopped', (data) => {
+      setAppState(prev => ({
+        ...prev,
+        isRecording: false,
+        sessionStats: data.stats,
+        status: `Recording completed. Duration: ${controller.session.getFormattedDuration()}`
+      }));
+    });
+
+    // Pitch detection events
+    controller.on('pitchDetected', (data) => {
+      setAppState(prev => ({
+        ...prev,
+        currentPitch: data.currentPitch,
+        pitchHistory: data.recentHistory
+      }));
+    });
+
+    // Audio playback events
+    controller.on('audioPlaybackStarted', () => {
+      setAppState(prev => ({ ...prev, isPlaying: true }));
+    });
+
+    controller.on('audioPlaybackPaused', () => {
+      setAppState(prev => ({ ...prev, isPlaying: false }));
+    });
+
+    controller.on('audioPlaybackStopped', () => {
+      setAppState(prev => ({ ...prev, isPlaying: false, currentTime: 0 }));
+    });
+
+    controller.on('audioTimeUpdate', (data) => {
+      setAppState(prev => ({
+        ...prev,
+        currentTime: data.currentTime,
+        duration: data.duration
+      }));
+    });
+
+    controller.on('audioVolumeChanged', (data) => {
+      setAppState(prev => ({ ...prev, volume: data.volume }));
+    });
+
+    // Session events
+    controller.on('sessionCleared', () => {
+      setAppState(prev => ({
+        ...prev,
+        isRecording: false,
+        isPlaying: false,
+        currentPitch: null,
+        pitchHistory: [],
+        sessionStats: null,
+        status: 'Session cleared. Ready for new practice!',
+        currentTime: 0
+      }));
+    });
+
+    // Error events
+    controller.on('error', (errorData) => {
+      setAppState(prev => ({
+        ...prev,
+        error: errorData.message,
+        status: `Error: ${errorData.message}`,
+        isLoading: false,
+        isRecording: false
+      }));
+      console.error('Application error:', errorData);
+    });
+  };
 
   /**
    * Handle audio file import
    */
-  const handleAudioImport = (file) => {
-    setAudioFile(file);
-    setStatus(`Loaded: ${file.name}`);
-    console.log('✅ Audio file imported:', file.name);
-  };
+  const handleAudioImport = async (file) => {
+    if (!controllerRef.current) return;
 
-  /**
-   * Handle pitch detection data
-   */
-  const handlePitchData = (pitch, note) => {
-    setCurrentPitch({ pitch, note, timestamp: Date.now() });
-    setPitchData(prev => [...prev.slice(-100), { pitch, note, timestamp: Date.now() }]);
-  };
+    setAppState(prev => ({ ...prev, isLoading: true, status: 'Loading audio file...' }));
 
-  /**
-   * Toggle recording state
-   */
-  const toggleRecording = () => {
-    setIsRecording(!isRecording);
-    if (!isRecording) {
-      setStatus('Recording and analyzing your voice...');
-      setPitchData([]);
-    } else {
-      setStatus('Recording stopped. Import a song to practice!');
+    try {
+      await controllerRef.current.importAudio(file);
+    } catch (error) {
+      setAppState(prev => ({
+        ...prev,
+        error: error.message,
+        status: `Failed to load audio: ${error.message}`,
+        isLoading: false
+      }));
     }
   };
 
   /**
-   * Clear current session
+   * Handle audio file removal
    */
-  const clearSession = () => {
-    setAudioFile(null);
-    setPitchData([]);
-    setCurrentPitch(null);
-    setStatus('Session cleared. Ready for new practice!');
-    setIsRecording(false);
+  const handleAudioRemove = () => {
+    if (!controllerRef.current) return;
+    controllerRef.current.removeAudio();
+  };
+
+  /**
+   * Handle recording start
+   */
+  const handleStartRecording = async () => {
+    if (!controllerRef.current) return;
+
+    try {
+      await controllerRef.current.startRecording();
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+    }
+  };
+
+  /**
+   * Handle recording stop
+   */
+  const handleStopRecording = () => {
+    if (!controllerRef.current) return;
+    controllerRef.current.stopRecording();
+  };
+
+  /**
+   * Handle session clear
+   */
+  const handleClearSession = () => {
+    if (!controllerRef.current) return;
+    controllerRef.current.clearSession();
+  };
+
+  /**
+   * Audio playback handlers
+   */
+  const handlePlay = async () => {
+    if (!controllerRef.current) return;
+    try {
+      await controllerRef.current.playAudio();
+    } catch (error) {
+      console.error('Failed to play audio:', error);
+    }
+  };
+
+  const handlePause = () => {
+    if (!controllerRef.current) return;
+    controllerRef.current.pauseAudio();
+  };
+
+  const handleStop = () => {
+    if (!controllerRef.current) return;
+    controllerRef.current.stopAudio();
+  };
+
+  const handleSeek = (time) => {
+    if (!controllerRef.current) return;
+    controllerRef.current.seekAudio(time);
+  };
+
+  const handleVolumeChange = (volume) => {
+    if (!controllerRef.current) return;
+    controllerRef.current.setAudioVolume(volume);
   };
 
   return (
@@ -65,74 +260,51 @@ export default function App() {
       <main className="pitch-container">
         {/* Status Display */}
         <div className={`status-message ${
-          status.includes('Error') ? 'status-error' :
-          status.includes('Recording') ? 'status-info' :
+          appState.error ? 'status-error' :
+          appState.isRecording ? 'status-info' :
           'status-success'
         }`}>
-          {status}
+          {appState.status}
         </div>
 
-        {/* Music Import Section */}
-        <MusicImporter
+        {/* Audio Import Section */}
+        <AudioImportView
+          audioFile={appState.hasAudio ? { name: appState.audioInfo?.name } : null}
           onAudioImport={handleAudioImport}
-          audioFile={audioFile}
+          onAudioRemove={handleAudioRemove}
+          audioInfo={appState.audioInfo}
+          isLoading={appState.isLoading}
         />
 
         {/* Audio Controls */}
-        <div className="audio-controls">
-          <button
-            onClick={toggleRecording}
-            className={isRecording ? 'recording' : ''}
-          >
-            {isRecording ? '🛑 Stop Recording' : '🎤 Start Recording'}
-          </button>
-          <button onClick={clearSession}>
-            🔄 Clear Session
-          </button>
-        </div>
-
-        {/* Current Pitch Display */}
-        {currentPitch && (
-          <div className="pitch-display">
-            <div className="pitch-value">
-              {currentPitch.pitch ? `${currentPitch.pitch.toFixed(1)} Hz` : 'No pitch detected'}
-            </div>
-            <div className="pitch-note">
-              {currentPitch.note || 'Silent'}
-            </div>
-          </div>
-        )}
-
-        {/* Pitch Detection Component */}
-        <PitchDetector
-          isActive={isRecording}
-          onPitchDetected={handlePitchData}
-          audioFile={audioFile}
+        <AudioControlsView
+          hasAudio={appState.hasAudio}
+          isPlaying={appState.isPlaying}
+          isRecording={appState.isRecording}
+          currentTime={appState.currentTime}
+          duration={appState.duration}
+          volume={appState.volume}
+          onPlay={handlePlay}
+          onPause={handlePause}
+          onStop={handleStop}
+          onSeek={handleSeek}
+          onVolumeChange={handleVolumeChange}
+          onStartRecording={handleStartRecording}
+          onStopRecording={handleStopRecording}
+          onClearSession={handleClearSession}
         />
 
-        {/* Pitch History Visualization */}
-        {pitchData.length > 0 && (
-          <div className="pitch-history">
-            <h3>Pitch History</h3>
-            <div className="pitch-graph">
-              {pitchData.slice(-20).map((data, index) => (
-                <div
-                  key={index}
-                  className="pitch-bar"
-                  style={{
-                    height: `${Math.min((data.pitch || 0) / 10, 100)}px`,
-                    backgroundColor: data.pitch ? '#4CAF50' : '#666'
-                  }}
-                  title={`${data.note || 'Silent'} - ${(data.pitch || 0).toFixed(1)}Hz`}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Pitch Visualization */}
+        <PitchVisualizationView
+          currentPitch={appState.currentPitch}
+          pitchHistory={appState.pitchHistory}
+          isRecording={appState.isRecording}
+          sessionStats={appState.sessionStats}
+        />
       </main>
 
       <footer className="app-footer">
-        <p>Web-only version • No mobile dependencies • Real-time pitch detection</p>
+        <p>Web-only • MVC Architecture • Real-time pitch detection</p>
       </footer>
     </div>
   );
