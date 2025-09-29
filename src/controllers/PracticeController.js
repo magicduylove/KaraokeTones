@@ -5,12 +5,16 @@
 import { Session } from '../models/Session.js';
 import { PitchDetectionService } from '../services/PitchDetectionService.js';
 import { AudioService } from '../services/AudioService.js';
+import { SongAnalysisService } from '../services/SongAnalysisService.js';
+import { PitchComparisonService } from '../services/PitchComparisonService.js';
 
 export class PracticeController {
   constructor() {
     this.session = new Session();
     this.pitchService = new PitchDetectionService();
     this.audioService = new AudioService();
+    this.songAnalysisService = new SongAnalysisService();
+    this.pitchComparisonService = new PitchComparisonService();
     this.listeners = new Map();
 
     // Bind service callbacks
@@ -70,4 +74,261 @@ export class PracticeController {
 
   /**
    * Import audio file for practice
-   */\n  async importAudio(file) {\n    try {\n      const audioFile = await this.audioService.loadAudioFile(file);\n      this.session.setAudioFile(audioFile);\n      \n      this.emit('audioImported', {\n        audioFile,\n        audioInfo: this.audioService.getAudioInfo()\n      });\n      \n      console.log('✅ Audio imported successfully');\n      return audioFile;\n      \n    } catch (error) {\n      this.emit('error', {\n        type: 'audio_import',\n        message: error.message,\n        error\n      });\n      throw error;\n    }\n  }\n\n  /**\n   * Remove current audio file\n   */\n  removeAudio() {\n    this.audioService.removeAudioFile();\n    this.session.setAudioFile(null);\n    this.emit('audioRemoved');\n  }\n\n  /**\n   * Start recording and pitch detection\n   */\n  async startRecording() {\n    if (this.session.isRecording) {\n      console.warn('Recording is already active');\n      return;\n    }\n\n    try {\n      // Check if pitch detection is supported\n      if (!PitchDetectionService.isSupported()) {\n        throw new Error('Pitch detection is not supported in this browser');\n      }\n\n      // Start session\n      this.session.startRecording();\n\n      // Start pitch detection with callback\n      await this.pitchService.start((frequency, note, confidence) => {\n        const pitchData = this.session.addPitchData(frequency, note, confidence);\n        \n        this.emit('pitchDetected', {\n          pitchData,\n          currentPitch: this.session.currentPitch,\n          recentHistory: this.session.getRecentPitchHistory()\n        });\n      });\n\n      this.emit('recordingStarted', {\n        sessionId: this.session.id,\n        startTime: this.session.startTime\n      });\n\n      console.log('✅ Recording started');\n\n    } catch (error) {\n      this.session.isRecording = false;\n      this.emit('error', {\n        type: 'recording_start',\n        message: error.message,\n        error\n      });\n      throw error;\n    }\n  }\n\n  /**\n   * Stop recording and pitch detection\n   */\n  stopRecording() {\n    if (!this.session.isRecording) {\n      console.warn('Recording is not active');\n      return;\n    }\n\n    // Stop pitch detection\n    this.pitchService.stop();\n\n    // Stop session\n    this.session.stopRecording();\n\n    this.emit('recordingStopped', {\n      sessionId: this.session.id,\n      duration: this.session.getDuration(),\n      stats: this.session.stats,\n      pitchHistory: this.session.pitchHistory\n    });\n\n    console.log('🛑 Recording stopped');\n  }\n\n  /**\n   * Clear current session\n   */\n  clearSession() {\n    // Stop recording if active\n    if (this.session.isRecording) {\n      this.stopRecording();\n    }\n\n    // Stop audio\n    this.audioService.stop();\n\n    // Clear session data\n    this.session.clear();\n\n    this.emit('sessionCleared');\n    console.log('🗑️ Session cleared');\n  }\n\n  /**\n   * Audio playback controls\n   */\n  async playAudio() {\n    try {\n      await this.audioService.play();\n      this.emit('audioPlaybackStarted');\n    } catch (error) {\n      this.emit('error', {\n        type: 'audio_playback',\n        message: error.message,\n        error\n      });\n      throw error;\n    }\n  }\n\n  pauseAudio() {\n    this.audioService.pause();\n    this.emit('audioPlaybackPaused');\n  }\n\n  stopAudio() {\n    this.audioService.stop();\n    this.emit('audioPlaybackStopped');\n  }\n\n  seekAudio(time) {\n    this.audioService.seekTo(time);\n    this.emit('audioSeeked', { time });\n  }\n\n  setAudioVolume(volume) {\n    this.audioService.setVolume(volume);\n    this.emit('audioVolumeChanged', { volume });\n  }\n\n  /**\n   * Get current application state\n   */\n  getState() {\n    return {\n      session: this.session.toJSON(),\n      audio: this.audioService.getState(),\n      pitchDetection: this.pitchService.getStatus(),\n      isRecording: this.session.isRecording,\n      hasAudio: this.audioService.hasAudio()\n    };\n  }\n\n  /**\n   * Get session statistics\n   */\n  getSessionStats() {\n    return {\n      ...this.session.stats,\n      duration: this.session.getFormattedDuration(),\n      pitchCount: this.session.pitchHistory.length\n    };\n  }\n\n  /**\n   * Export session data\n   */\n  exportSession() {\n    return {\n      ...this.session.toJSON(),\n      exportedAt: Date.now(),\n      version: '1.0'\n    };\n  }\n\n  /**\n   * Cleanup resources\n   */\n  dispose() {\n    // Stop any active operations\n    this.stopRecording();\n    this.audioService.dispose();\n    \n    // Clear session\n    this.session.clear();\n    \n    // Clear event listeners\n    this.listeners.clear();\n    \n    console.log('🧹 Practice controller disposed');\n  }\n}
+   */
+  async importAudio(file) {
+    try {
+      // Load audio file for playback
+      const audioFile = await this.audioService.loadAudioFile(file);
+      this.session.setAudioFile(audioFile);
+
+      this.emit('audioImported', {
+        audioFile,
+        audioInfo: this.audioService.getAudioInfo()
+      });
+
+      // Start song analysis for pitch comparison
+      this.emit('songAnalysisStarted', { fileName: file.name });
+
+      try {
+        const analysisData = await this.songAnalysisService.analyzeSong(file);
+        this.pitchComparisonService.setSongAnalysis(analysisData);
+
+        this.emit('songAnalysisCompleted', {
+          analysisData,
+          analysisInfo: this.songAnalysisService.getAnalysisInfo()
+        });
+
+        console.log('✅ Audio imported and analyzed successfully');
+      } catch (analysisError) {
+        console.warn('⚠️ Song analysis failed, but audio playback will work:', analysisError.message);
+        this.emit('songAnalysisFailed', {
+          error: analysisError.message
+        });
+      }
+
+      return audioFile;
+
+    } catch (error) {
+      this.emit('error', {
+        type: 'audio_import',
+        message: error.message,
+        error
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Remove current audio file
+   */
+  removeAudio() {
+    this.audioService.removeAudioFile();
+    this.session.setAudioFile(null);
+    this.songAnalysisService.clearAnalysis();
+    this.pitchComparisonService.clearHistory();
+    this.emit('audioRemoved');
+  }
+
+  /**
+   * Start recording and pitch detection
+   */
+  async startRecording() {
+    if (this.session.isRecording) {
+      console.warn('Recording is already active');
+      return;
+    }
+
+    try {
+      // Check if pitch detection is supported
+      if (!PitchDetectionService.isSupported()) {
+        throw new Error('Pitch detection is not supported in this browser');
+      }
+
+      // Start session
+      this.session.startRecording();
+
+      // Start pitch detection with callback
+      await this.pitchService.start((frequency, note, confidence) => {
+        const pitchData = this.session.addPitchData(frequency, note, confidence);
+
+        // Perform pitch comparison if song analysis is available
+        let pitchComparison = null;
+        if (this.songAnalysisService.hasAnalysis() && this.audioService.isPlaying) {
+          const currentTime = this.audioService.currentTime;
+          pitchComparison = this.pitchComparisonService.comparePitch(pitchData, currentTime);
+        }
+
+        this.emit('pitchDetected', {
+          pitchData,
+          currentPitch: this.session.currentPitch,
+          recentHistory: this.session.getRecentPitchHistory(),
+          pitchComparison: pitchComparison
+        });
+      });
+
+      this.emit('recordingStarted', {
+        sessionId: this.session.id,
+        startTime: this.session.startTime
+      });
+
+      console.log('✅ Recording started');
+
+    } catch (error) {
+      this.session.isRecording = false;
+      this.emit('error', {
+        type: 'recording_start',
+        message: error.message,
+        error
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Stop recording and pitch detection
+   */
+  stopRecording() {
+    if (!this.session.isRecording) {
+      console.warn('Recording is not active');
+      return;
+    }
+
+    // Stop pitch detection
+    this.pitchService.stop();
+
+    // Stop session
+    this.session.stopRecording();
+
+    this.emit('recordingStopped', {
+      sessionId: this.session.id,
+      duration: this.session.getDuration(),
+      stats: this.session.stats,
+      pitchHistory: this.session.pitchHistory
+    });
+
+    console.log('🛑 Recording stopped');
+  }
+
+  /**
+   * Clear current session
+   */
+  clearSession() {
+    // Stop recording if active
+    if (this.session.isRecording) {
+      this.stopRecording();
+    }
+
+    // Stop audio
+    this.audioService.stop();
+
+    // Clear session data
+    this.session.clear();
+
+    this.emit('sessionCleared');
+    console.log('🗑️ Session cleared');
+  }
+
+  /**
+   * Audio playback controls
+   */
+  async playAudio() {
+    try {
+      await this.audioService.play();
+      this.emit('audioPlaybackStarted');
+    } catch (error) {
+      this.emit('error', {
+        type: 'audio_playback',
+        message: error.message,
+        error
+      });
+      throw error;
+    }
+  }
+
+  pauseAudio() {
+    this.audioService.pause();
+    this.emit('audioPlaybackPaused');
+  }
+
+  stopAudio() {
+    this.audioService.stop();
+    this.emit('audioPlaybackStopped');
+  }
+
+  seekAudio(time) {
+    this.audioService.seekTo(time);
+    this.emit('audioSeeked', { time });
+  }
+
+  setAudioVolume(volume) {
+    this.audioService.setVolume(volume);
+    this.emit('audioVolumeChanged', { volume });
+  }
+
+  /**
+   * Get current application state
+   */
+  getState() {
+    return {
+      session: this.session.toJSON(),
+      audio: this.audioService.getState(),
+      pitchDetection: this.pitchService.getStatus(),
+      isRecording: this.session.isRecording,
+      hasAudio: this.audioService.hasAudio()
+    };
+  }
+
+  /**
+   * Get session statistics
+   */
+  getSessionStats() {
+    const basicStats = {
+      ...this.session.stats,
+      duration: this.session.getFormattedDuration(),
+      pitchCount: this.session.pitchHistory.length
+    };
+
+    // Add pitch comparison stats if available
+    if (this.songAnalysisService.hasAnalysis()) {
+      const comparisonStats = this.pitchComparisonService.getSessionStats();
+      return {
+        ...basicStats,
+        pitchComparison: comparisonStats,
+        hasSongAnalysis: true
+      };
+    }
+
+    return {
+      ...basicStats,
+      hasSongAnalysis: false
+    };
+  }
+
+  /**
+   * Export session data
+   */
+  exportSession() {
+    return {
+      ...this.session.toJSON(),
+      exportedAt: Date.now(),
+      version: '1.0'
+    };
+  }
+
+  /**
+   * Cleanup resources
+   */
+  dispose() {
+    // Stop any active operations
+    this.stopRecording();
+    this.audioService.dispose();
+
+    // Clear session
+    this.session.clear();
+
+    // Clear event listeners
+    this.listeners.clear();
+
+    console.log('Practice controller disposed');
+  }
+}

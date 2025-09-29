@@ -10,4 +10,281 @@ const AudioImportView = ({
   onAudioRemove,
   audioInfo,
   isLoading = false
-}) => {\n  const fileInputRef = useRef();\n\n  /**\n   * Handle file selection\n   */\n  const handleFileChange = (event) => {\n    const file = event.target.files[0];\n    if (file && onAudioImport) {\n      onAudioImport(file);\n    }\n  };\n\n  /**\n   * Open file dialog\n   */\n  const openFileDialog = () => {\n    fileInputRef.current?.click();\n  };\n\n  /**\n   * Handle file removal\n   */\n  const handleRemoveFile = () => {\n    if (onAudioRemove) {\n      onAudioRemove();\n    }\n    if (fileInputRef.current) {\n      fileInputRef.current.value = '';\n    }\n  };\n\n  return (\n    <div className=\"audio-import-view\">\n      <div className=\"file-input-container\">\n        <input\n          ref={fileInputRef}\n          type=\"file\"\n          accept=\"audio/*\"\n          onChange={handleFileChange}\n          id=\"audio-file-input\"\n          disabled={isLoading}\n        />\n        \n        {!audioFile ? (\n          <div className=\"empty-state\">\n            <div className=\"upload-area\" onClick={openFileDialog}>\n              <div className=\"upload-icon\">🎵</div>\n              <h3>Choose Audio File</h3>\n              <p>Upload your backing track to practice with</p>\n              <div className=\"supported-formats\">\n                <small>Supported: MP3, WAV, OGG, M4A</small>\n              </div>\n            </div>\n          </div>\n        ) : (\n          <div className=\"current-file\">\n            <div className=\"file-header\">\n              <span className=\"file-icon\">🎵</span>\n              <div className=\"file-details\">\n                <h4>{audioInfo?.name || audioFile.name}</h4>\n                <div className=\"file-meta\">\n                  {audioInfo?.size && <span>Size: {audioInfo.size}</span>}\n                  {audioInfo?.duration && <span> • Duration: {audioInfo.duration}</span>}\n                </div>\n              </div>\n            </div>\n            \n            <div className=\"file-actions\">\n              <button \n                onClick={openFileDialog} \n                className=\"secondary-button\"\n                disabled={isLoading}\n              >\n                🔄 Change File\n              </button>\n              <button \n                onClick={handleRemoveFile}\n                className=\"danger-button\"\n                disabled={isLoading}\n              >\n                🗑️ Remove\n              </button>\n            </div>\n          </div>\n        )}\n      </div>\n\n      {isLoading && (\n        <div className=\"loading-state\">\n          <div className=\"spinner\"></div>\n          <span>Loading audio file...</span>\n        </div>\n      )}\n\n      <div className=\"tips\">\n        <h4>💡 Tips for Better Practice:</h4>\n        <ul>\n          <li>Use instrumental or backing track versions</li>\n          <li>Choose songs in your vocal range</li>\n          <li>Ensure good audio quality for better detection</li>\n        </ul>\n      </div>\n\n      <style jsx>{`\n        .audio-import-view {\n          width: 100%;\n          max-width: 600px;\n          margin: 0 auto;\n        }\n\n        .file-input-container input[type=\"file\"] {\n          display: none;\n        }\n\n        .empty-state {\n          margin: 20px 0;\n        }\n\n        .upload-area {\n          border: 2px dashed #666;\n          border-radius: 10px;\n          padding: 40px 20px;\n          text-align: center;\n          cursor: pointer;\n          transition: all 0.3s ease;\n          background: #1a1a1a;\n        }\n\n        .upload-area:hover {\n          border-color: #4CAF50;\n          background: #252525;\n        }\n\n        .upload-icon {\n          font-size: 3em;\n          margin-bottom: 15px;\n        }\n\n        .upload-area h3 {\n          margin: 10px 0;\n          color: #fff;\n        }\n\n        .upload-area p {\n          color: #ccc;\n          margin: 10px 0;\n        }\n\n        .supported-formats {\n          margin-top: 15px;\n        }\n\n        .supported-formats small {\n          color: #999;\n          font-size: 0.9em;\n        }\n\n        .current-file {\n          background: #2a2a2a;\n          border-radius: 10px;\n          padding: 20px;\n          margin: 20px 0;\n        }\n\n        .file-header {\n          display: flex;\n          align-items: center;\n          gap: 15px;\n          margin-bottom: 15px;\n        }\n\n        .file-icon {\n          font-size: 2em;\n        }\n\n        .file-details h4 {\n          margin: 0 0 5px 0;\n          color: #4CAF50;\n          word-break: break-word;\n        }\n\n        .file-meta {\n          color: #ccc;\n          font-size: 0.9em;\n        }\n\n        .file-actions {\n          display: flex;\n          gap: 10px;\n          justify-content: center;\n        }\n\n        .secondary-button {\n          padding: 8px 16px;\n          background: #555;\n          color: white;\n          border: none;\n          border-radius: 5px;\n          cursor: pointer;\n          transition: background 0.2s;\n        }\n\n        .secondary-button:hover {\n          background: #666;\n        }\n\n        .danger-button {\n          padding: 8px 16px;\n          background: #f44336;\n          color: white;\n          border: none;\n          border-radius: 5px;\n          cursor: pointer;\n          transition: background 0.2s;\n        }\n\n        .danger-button:hover {\n          background: #d32f2f;\n        }\n\n        .secondary-button:disabled,\n        .danger-button:disabled {\n          opacity: 0.5;\n          cursor: not-allowed;\n        }\n\n        .loading-state {\n          display: flex;\n          align-items: center;\n          justify-content: center;\n          gap: 10px;\n          padding: 20px;\n          color: #4CAF50;\n        }\n\n        .spinner {\n          width: 20px;\n          height: 20px;\n          border: 2px solid #333;\n          border-top: 2px solid #4CAF50;\n          border-radius: 50%;\n          animation: spin 1s linear infinite;\n        }\n\n        @keyframes spin {\n          0% { transform: rotate(0deg); }\n          100% { transform: rotate(360deg); }\n        }\n\n        .tips {\n          background: #1a1a1a;\n          border-radius: 10px;\n          padding: 20px;\n          margin-top: 20px;\n        }\n\n        .tips h4 {\n          margin: 0 0 10px 0;\n          color: #4CAF50;\n        }\n\n        .tips ul {\n          margin: 0;\n          padding-left: 20px;\n          color: #ccc;\n        }\n\n        .tips li {\n          margin: 5px 0;\n          font-size: 0.9em;\n        }\n      `}</style>\n    </div>\n  );\n};\n\nexport default AudioImportView;
+}) => {
+  const fileInputRef = useRef();
+
+  /**
+   * Handle file selection
+   */
+  const handleFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file && onAudioImport) {
+      onAudioImport(file);
+    }
+  };
+
+  /**
+   * Open file dialog
+   */
+  const openFileDialog = () => {
+    fileInputRef.current?.click();
+  };
+
+  /**
+   * Handle file removal
+   */
+  const handleRemoveFile = () => {
+    if (onAudioRemove) {
+      onAudioRemove();
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="audio-import-view">
+      <div className="file-input-container">
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleFileChange}
+          id="audio-file-input"
+          disabled={isLoading}
+        />
+
+        {!audioFile ? (
+          <div className="empty-state">
+            <div className="upload-area" onClick={openFileDialog}>
+              <div className="upload-icon">🎵</div>
+              <h3>Choose Audio File</h3>
+              <p>Upload your backing track to practice with</p>
+              <div className="supported-formats">
+                <small>Supported: MP3, WAV, OGG, M4A</small>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="current-file">
+            <div className="file-header">
+              <span className="file-icon">🎵</span>
+              <div className="file-details">
+                <h4>{audioInfo?.name || audioFile.name}</h4>
+                <div className="file-meta">
+                  {audioInfo?.size && <span>Size: {audioInfo.size}</span>}
+                  {audioInfo?.duration && <span> • Duration: {audioInfo.duration}</span>}
+                </div>
+              </div>
+            </div>
+
+            <div className="file-actions">
+              <button
+                onClick={openFileDialog}
+                className="secondary-button"
+                disabled={isLoading}
+              >
+                🔄 Change File
+              </button>
+              <button
+                onClick={handleRemoveFile}
+                className="danger-button"
+                disabled={isLoading}
+              >
+                🗑️ Remove
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {isLoading && (
+        <div className="loading-state">
+          <div className="spinner"></div>
+          <span>Loading audio file...</span>
+        </div>
+      )}
+
+      <div className="tips">
+        <h4>💡 Tips for Better Practice:</h4>
+        <ul>
+          <li>Use instrumental or backing track versions</li>
+          <li>Choose songs in your vocal range</li>
+          <li>Ensure good audio quality for better detection</li>
+        </ul>
+      </div>
+
+      <style jsx>{`
+        .audio-import-view {
+          width: 100%;
+          max-width: 600px;
+          margin: 0 auto;
+        }
+
+        .file-input-container input[type="file"] {
+          display: none;
+        }
+
+        .empty-state {
+          margin: 20px 0;
+        }
+
+        .upload-area {
+          border: 2px dashed #666;
+          border-radius: 10px;
+          padding: 40px 20px;
+          text-align: center;
+          cursor: pointer;
+          transition: all 0.3s ease;
+          background: #1a1a1a;
+        }
+
+        .upload-area:hover {
+          border-color: #4CAF50;
+          background: #252525;
+        }
+
+        .upload-icon {
+          font-size: 3em;
+          margin-bottom: 15px;
+        }
+
+        .upload-area h3 {
+          margin: 10px 0;
+          color: #fff;
+        }
+
+        .upload-area p {
+          color: #ccc;
+          margin: 10px 0;
+        }
+
+        .supported-formats {
+          margin-top: 15px;
+        }
+
+        .supported-formats small {
+          color: #999;
+          font-size: 0.9em;
+        }
+
+        .current-file {
+          background: #2a2a2a;
+          border-radius: 10px;
+          padding: 20px;
+          margin: 20px 0;
+        }
+
+        .file-header {
+          display: flex;
+          align-items: center;
+          gap: 15px;
+          margin-bottom: 15px;
+        }
+
+        .file-icon {
+          font-size: 2em;
+        }
+
+        .file-details h4 {
+          margin: 0 0 5px 0;
+          color: #4CAF50;
+          word-break: break-word;
+        }
+
+        .file-meta {
+          color: #ccc;
+          font-size: 0.9em;
+        }
+
+        .file-actions {
+          display: flex;
+          gap: 10px;
+          justify-content: center;
+        }
+
+        .secondary-button {
+          padding: 8px 16px;
+          background: #555;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+
+        .secondary-button:hover {
+          background: #666;
+        }
+
+        .danger-button {
+          padding: 8px 16px;
+          background: #f44336;
+          color: white;
+          border: none;
+          border-radius: 5px;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+
+        .danger-button:hover {
+          background: #d32f2f;
+        }
+
+        .secondary-button:disabled,
+        .danger-button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .loading-state {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 10px;
+          padding: 20px;
+          color: #4CAF50;
+        }
+
+        .spinner {
+          width: 20px;
+          height: 20px;
+          border: 2px solid #333;
+          border-top: 2px solid #4CAF50;
+          border-radius: 50%;
+          animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+
+        .tips {
+          background: #1a1a1a;
+          border-radius: 10px;
+          padding: 20px;
+          margin-top: 20px;
+        }
+
+        .tips h4 {
+          margin: 0 0 10px 0;
+          color: #4CAF50;
+        }
+
+        .tips ul {
+          margin: 0;
+          padding-left: 20px;
+          color: #ccc;
+        }
+
+        .tips li {
+          margin: 5px 0;
+          font-size: 0.9em;
+        }
+      `}</style>
+    </div>
+  );
+};
+
+export default AudioImportView;

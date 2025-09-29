@@ -24,7 +24,10 @@ export default function App() {
     isLoading: false,
     currentTime: 0,
     duration: 0,
-    volume: 1
+    volume: 1,
+    songAnalysis: null,
+    isAnalyzing: false,
+    pitchComparison: null
   });
 
   // Controller reference
@@ -105,7 +108,8 @@ export default function App() {
       setAppState(prev => ({
         ...prev,
         currentPitch: data.currentPitch,
-        pitchHistory: data.recentHistory
+        pitchHistory: data.recentHistory,
+        pitchComparison: data.pitchComparison
       }));
     });
 
@@ -148,6 +152,32 @@ export default function App() {
       }));
     });
 
+    // Song analysis events
+    controller.on('songAnalysisStarted', (data) => {
+      setAppState(prev => ({
+        ...prev,
+        isAnalyzing: true,
+        status: `Analyzing song for pitch comparison: ${data.fileName}...`
+      }));
+    });
+
+    controller.on('songAnalysisCompleted', (data) => {
+      setAppState(prev => ({
+        ...prev,
+        isAnalyzing: false,
+        songAnalysis: data.analysisInfo,
+        status: `Song analyzed! Ready for pitch comparison practice.`
+      }));
+    });
+
+    controller.on('songAnalysisFailed', (data) => {
+      setAppState(prev => ({
+        ...prev,
+        isAnalyzing: false,
+        status: `Song analysis failed: ${data.error}. Playback will work without pitch comparison.`
+      }));
+    });
+
     // Error events
     controller.on('error', (errorData) => {
       setAppState(prev => ({
@@ -155,7 +185,8 @@ export default function App() {
         error: errorData.message,
         status: `Error: ${errorData.message}`,
         isLoading: false,
-        isRecording: false
+        isRecording: false,
+        isAnalyzing: false
       }));
       console.error('Application error:', errorData);
     });
@@ -300,6 +331,8 @@ export default function App() {
           pitchHistory={appState.pitchHistory}
           isRecording={appState.isRecording}
           sessionStats={appState.sessionStats}
+          pitchComparison={appState.pitchComparison}
+          songAnalysis={appState.songAnalysis}
         />
       </main>
 
