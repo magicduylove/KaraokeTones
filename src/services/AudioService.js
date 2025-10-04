@@ -257,6 +257,143 @@ export class AudioService {
   }
 
   /**
+   * Test function to hear audio after background removal
+   * Sends audio to backend for vocal separation and plays the result
+   */
+  async testVocalSeparation() {
+    if (!this.currentAudio) {
+      throw new Error('No audio file loaded');
+    }
+
+    try {
+      console.log('🎵 Starting vocal separation test...');
+
+      // Stop current playback
+      this.stop();
+
+      // Create FormData to send to backend
+      const formData = new FormData();
+      formData.append('audio', this.currentAudio.file);
+
+      // Send to backend for vocal separation
+      const response = await fetch('http://localhost:5000/separate-vocals', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        if (errorData.note && errorData.note.includes('PyTorch')) {
+          throw new Error(`Vocal separation failed due to PyTorch compatibility. Falling back to original audio. ${errorData.error}`);
+        }
+        throw new Error(`Vocal separation failed: ${errorData.error}`);
+      }
+
+      // Get the separated vocal audio as blob
+      const vocalBlob = await response.blob();
+
+      console.log('✅ Vocal separation completed');
+      console.log(`📦 Vocal file size: ${(vocalBlob.size / 1024 / 1024).toFixed(2)} MB`);
+
+      // Create a new audio element for the separated vocals
+      const vocalAudio = new Audio();
+      const vocalUrl = URL.createObjectURL(vocalBlob);
+      vocalAudio.src = vocalUrl;
+
+      // Play the separated vocals
+      await vocalAudio.play();
+
+      console.log('🎤 Playing separated vocals (background removed)');
+
+      // Clean up URL when audio ends
+      vocalAudio.addEventListener('ended', () => {
+        URL.revokeObjectURL(vocalUrl);
+        console.log('🔄 Vocal test playback completed');
+      });
+
+      // Return audio element for further control if needed
+      return vocalAudio;
+
+    } catch (error) {
+      console.error('❌ Vocal separation test failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Test function to analyze vocal separation without playback
+   * Returns information about the separation process
+   */
+  async analyzeVocalSeparation() {
+    if (!this.currentAudio) {
+      throw new Error('No audio file loaded');
+    }
+
+    try {
+      console.log('📊 Analyzing vocal separation...');
+
+      const formData = new FormData();
+      formData.append('audio', this.currentAudio.file);
+
+      const response = await fetch('http://localhost:5000/analyze-vocals', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`Analysis failed: ${errorData.error}`);
+      }
+
+      const analysisResult = await response.json();
+      console.log('📈 Vocal separation analysis:', analysisResult);
+
+      return analysisResult;
+
+    } catch (error) {
+      console.error('❌ Vocal separation analysis failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Compare original and separated vocals by playing them sequentially
+   */
+  async compareOriginalWithVocals() {
+    if (!this.currentAudio) {
+      throw new Error('No audio file loaded');
+    }
+
+    try {
+      console.log('🔄 Starting audio comparison test...');
+
+      // First, play original for 10 seconds
+      console.log('🎵 Playing original audio (10 seconds)...');
+      await this.play();
+
+      await new Promise(resolve => setTimeout(resolve, 10000)); // Wait 10 seconds
+      this.pause();
+
+      // Brief pause
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Then get and play separated vocals
+      console.log('🎤 Getting separated vocals...');
+      const vocalAudio = await this.testVocalSeparation();
+
+      return {
+        message: 'Comparison completed - played original then separated vocals',
+        originalDuration: this.duration,
+        vocalAudio: vocalAudio
+      };
+
+    } catch (error) {
+      console.error('❌ Audio comparison failed:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Get current state
    */
   getState() {

@@ -1,15 +1,15 @@
 @echo off
 echo 🎤 Starting Demucs Vocal Separation Backend...
-echo Found Python at: C:\Python313
+echo Found Python at: C:\Users\magic\AppData\Local\Programs\Python\Python313
 echo.
 
 REM Use the detected Python installation
-set PYTHON_EXE=C:\Python313\python.exe
+set PYTHON_EXE=C:\Users\magic\AppData\Local\Programs\Python\Python313\python.exe
 
 echo Testing Python installation...
 %PYTHON_EXE% --version
 if %errorlevel% neq 0 (
-    echo ❌ Python not working at C:\Python313\python.exe
+    echo ❌ Python not working at C:\Users\magic\AppData\Local\Programs\Python\Python313\python.exe
     echo Please check your Python installation
     pause
     exit /b 1

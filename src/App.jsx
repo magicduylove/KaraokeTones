@@ -1,12 +1,15 @@
 /**
- * PitchKaraoke - Web-based singing practice app with MVC architecture
+ * PitchKaraoke - Web-based singing practice app with MVC architecture and routing
  */
 
 import React, { useState, useEffect, useRef } from 'react';
+import { Routes, Route } from 'react-router-dom';
 import { PracticeController } from './controllers/PracticeController.js';
-import AudioImportView from './views/AudioImportView.jsx';
-import PitchVisualizationView from './views/PitchVisualizationView.jsx';
-import AudioControlsView from './views/AudioControlsView.jsx';
+import Navigation from './components/Navigation.jsx';
+import HomePage from './pages/HomePage.jsx';
+import PracticePage from './pages/PracticePage.jsx';
+import VocalTestPage from './pages/VocalTestPage.jsx';
+import AnalysisPage from './pages/AnalysisPage.jsx';
 import './App.css';
 
 export default function App() {
@@ -284,64 +287,66 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>🎤 PitchKaraoke</h1>
-        <p>Practice singing with real-time pitch detection</p>
-      </header>
+      {/* Navigation */}
+      <Navigation />
 
-      <main className="pitch-container">
-        {/* Status Display */}
-        <div className={`status-message ${
-          appState.error ? 'status-error' :
-          appState.isRecording ? 'status-info' :
-          'status-success'
-        }`}>
-          {appState.status}
-        </div>
-
-        {/* Audio Import Section */}
-        <AudioImportView
-          audioFile={appState.hasAudio ? { name: appState.audioInfo?.name } : null}
-          onAudioImport={handleAudioImport}
-          onAudioRemove={handleAudioRemove}
-          audioInfo={appState.audioInfo}
-          isLoading={appState.isLoading}
-        />
-
-        {/* Audio Controls */}
-        <AudioControlsView
-          hasAudio={appState.hasAudio}
-          isPlaying={appState.isPlaying}
-          isRecording={appState.isRecording}
-          currentTime={appState.currentTime}
-          duration={appState.duration}
-          volume={appState.volume}
-          onPlay={handlePlay}
-          onPause={handlePause}
-          onStop={handleStop}
-          onSeek={handleSeek}
-          onVolumeChange={handleVolumeChange}
-          onStartRecording={handleStartRecording}
-          onStopRecording={handleStopRecording}
-          onClearSession={handleClearSession}
-        />
-
-        {/* Pitch Visualization */}
-        <PitchVisualizationView
-          currentPitch={appState.currentPitch}
-          pitchHistory={appState.pitchHistory}
-          isRecording={appState.isRecording}
-          sessionStats={appState.sessionStats}
-          pitchComparison={appState.pitchComparison}
-          songAnalysis={appState.songAnalysis}
-          currentTime={appState.currentTime}
-          duration={appState.duration}
-          isPlaying={appState.isPlaying}
-        />
+      {/* Main Content */}
+      <main className="main-content">
+        <Routes>
+          <Route
+            path="/"
+            element={<HomePage />}
+          />
+          <Route
+            path="/practice"
+            element={
+              <PracticePage
+                appState={appState}
+                controllerRef={controllerRef}
+                handleAudioImport={handleAudioImport}
+                handleAudioRemove={handleAudioRemove}
+                handlePlay={handlePlay}
+                handlePause={handlePause}
+                handleStop={handleStop}
+                handleSeek={handleSeek}
+                handleVolumeChange={handleVolumeChange}
+                handleStartRecording={handleStartRecording}
+                handleStopRecording={handleStopRecording}
+                handleClearSession={handleClearSession}
+              />
+            }
+          />
+          <Route
+            path="/vocal-test"
+            element={
+              <VocalTestPage
+                controller={controllerRef.current}
+                appState={appState}
+              />
+            }
+          />
+          <Route
+            path="/analysis"
+            element={
+              <AnalysisPage
+                appState={appState}
+              />
+            }
+          />
+        </Routes>
       </main>
 
+      {/* Footer */}
       <footer className="app-footer">
-        <p>Web-only • MVC Architecture • Real-time pitch detection</p>
+        <div className="footer-content">
+          <p>🎤 PitchKaraoke • Web-only • MVC Architecture • Real-time pitch detection</p>
+          <p className="footer-links">
+            <a href="/">Home</a> •
+            <a href="/practice">Practice</a> •
+            <a href="/vocal-test">Vocal Test</a> •
+            <a href="/analysis">Analysis</a>
+          </p>
+        </div>
       </footer>
     </div>
   );
